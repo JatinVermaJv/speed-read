@@ -15,6 +15,7 @@ export const users = pgTable("users", {
   name: varchar("name", { length: 255 }).notNull(),
   googleId: varchar("google_id", { length: 255 }).unique(),
   avatarUrl: text("avatar_url"),
+  isAdmin: boolean("is_admin").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

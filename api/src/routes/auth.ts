@@ -24,10 +24,11 @@ auth.use("/*", authRateLimiter());
 
 async function createTokens(
   userId: string,
-  email: string
+  email: string,
+  isAdmin: boolean = false
 ): Promise<{ accessToken: string; refreshToken: string }> {
-  const accessToken = generateAccessToken({ userId, email });
-  const refreshToken = generateRefreshToken({ userId, email });
+  const accessToken = generateAccessToken({ userId, email, isAdmin });
+  const refreshToken = generateRefreshToken({ userId, email, isAdmin });
 
   // Hash and store refresh token
   const tokenHash = await bcrypt.hash(refreshToken, 10);
@@ -87,10 +88,11 @@ auth.post("/register", zValidator("json", registerSchema), async (c) => {
       email: users.email,
       name: users.name,
       avatarUrl: users.avatarUrl,
+      isAdmin: users.isAdmin,
       createdAt: users.createdAt,
     });
 
-  const { accessToken, refreshToken } = await createTokens(user.id, user.email);
+  const { accessToken, refreshToken } = await createTokens(user.id, user.email, user.isAdmin);
 
   setRefreshCookie(c, refreshToken);
 
@@ -101,6 +103,7 @@ auth.post("/register", zValidator("json", registerSchema), async (c) => {
       email: user.email,
       name: user.name,
       avatarUrl: user.avatarUrl,
+      isAdmin: user.isAdmin,
       createdAt: user.createdAt,
     },
   });
@@ -138,7 +141,7 @@ auth.post("/login", zValidator("json", loginSchema), async (c) => {
     );
   }
 
-  const { accessToken, refreshToken } = await createTokens(user.id, user.email);
+  const { accessToken, refreshToken } = await createTokens(user.id, user.email, user.isAdmin);
 
   setRefreshCookie(c, refreshToken);
 
@@ -149,6 +152,7 @@ auth.post("/login", zValidator("json", loginSchema), async (c) => {
       email: user.email,
       name: user.name,
       avatarUrl: user.avatarUrl,
+      isAdmin: user.isAdmin,
       createdAt: user.createdAt,
     },
   });
@@ -210,7 +214,8 @@ auth.post("/google", zValidator("json", googleSchema), async (c) => {
 
   const { accessToken, refreshToken } = await createTokens(
     user.id,
-    user.email
+    user.email,
+    user.isAdmin
   );
 
   setRefreshCookie(c, refreshToken);
@@ -222,6 +227,7 @@ auth.post("/google", zValidator("json", googleSchema), async (c) => {
       email: user.email,
       name: user.name,
       avatarUrl: user.avatarUrl,
+      isAdmin: user.isAdmin,
       createdAt: user.createdAt,
     },
   });
@@ -292,7 +298,8 @@ auth.post("/refresh", async (c) => {
 
   const { accessToken, refreshToken: newRefreshToken } = await createTokens(
     user.id,
-    user.email
+    user.email,
+    user.isAdmin
   );
 
   setRefreshCookie(c, newRefreshToken);
@@ -304,6 +311,7 @@ auth.post("/refresh", async (c) => {
       email: user.email,
       name: user.name,
       avatarUrl: user.avatarUrl,
+      isAdmin: user.isAdmin,
       createdAt: user.createdAt,
     },
   });

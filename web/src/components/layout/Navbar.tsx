@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { BookOpen, BarChart3, LogOut, Menu, X } from "lucide-react";
+import { BookOpen, BarChart3, LogOut, Menu, X, Shield } from "lucide-react";
 import { useState } from "react";
 
 export function Navbar() {
@@ -38,6 +38,15 @@ export function Navbar() {
             <div className="w-20 h-9 rounded-lg bg-secondary animate-pulse" />
           ) : user ? (
             <div className="flex items-center gap-4">
+              {user.isAdmin && (
+                <Link
+                  href="/admin"
+                  className="flex items-center gap-1 text-accent hover:text-accent/80 transition-colors text-sm font-medium"
+                >
+                  <Shield className="w-4 h-4" />
+                  Admin
+                </Link>
+              )}
               <span className="text-sm text-muted-foreground">
                 {user.name}
               </span>
@@ -94,6 +103,16 @@ export function Navbar() {
           </Link>
           {user ? (
             <>
+              {user.isAdmin && (
+                <Link
+                  href="/admin"
+                  className="flex items-center gap-1 text-accent hover:text-accent/80"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <Shield className="w-4 h-4" />
+                  Admin
+                </Link>
+              )}
               <span className="block text-sm text-muted-foreground">
                 {user.name}
               </span>

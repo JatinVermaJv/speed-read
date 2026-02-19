@@ -6,6 +6,7 @@ import { rateLimiter } from "./middleware/rateLimiter";
 import authRoutes from "./routes/auth";
 import passagesRoutes from "./routes/passages";
 import sessionsRoutes from "./routes/sessions";
+import adminRoutes from "./routes/admin";
 
 const app = new Hono();
 
@@ -37,6 +38,7 @@ app.use("*", rateLimiter({ windowMs: 60 * 1000, max: 100 }));
 app.route("/auth", authRoutes);
 app.route("/passages", passagesRoutes);
 app.route("/sessions", sessionsRoutes);
+app.route("/admin", adminRoutes);
 
 // ─── Health Check ───────────────────────────────────────────────────────────
 
