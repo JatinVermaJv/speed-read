@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# env files
+.env
+.env.local
+!.env.example
+
+# next.js
+web/.next/
+web/out/
+
+# build
+dist/
+build/
+
+# drizzle
+api/drizzle/
+
+# misc
+.DS_Store
+*.log
+*.tsbuildinfo
+
+discription.md
+plan.md
