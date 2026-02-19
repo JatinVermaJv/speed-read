@@ -26,23 +26,24 @@ export function GrowthChart({ data }: GrowthChartProps) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <LineChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
         <XAxis
           dataKey="date"
-          stroke="#94a3b8"
+          stroke="#8b8fa3"
           fontSize={12}
           tickFormatter={(value) => {
             const d = new Date(value);
             return `${d.getMonth() + 1}/${d.getDate()}`;
           }}
         />
-        <YAxis stroke="#94a3b8" fontSize={12} />
+        <YAxis stroke="#8b8fa3" fontSize={12} />
         <Tooltip
           contentStyle={{
-            backgroundColor: "#111827",
-            border: "1px solid #1e293b",
-            borderRadius: "8px",
-            color: "#f3f4f6",
+            backgroundColor: "#0c0c1d",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: "12px",
+            color: "#eef0f6",
+            boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
           }}
           labelFormatter={(value) => new Date(value).toLocaleDateString()}
           formatter={(value) => [`${value} WPM`, "Max Speed"]}
@@ -50,11 +51,17 @@ export function GrowthChart({ data }: GrowthChartProps) {
         <Line
           type="monotone"
           dataKey="wpm"
-          stroke="#3b82f6"
-          strokeWidth={2}
-          dot={{ fill: "#3b82f6", r: 4 }}
-          activeDot={{ r: 6, fill: "#ef4444" }}
+          stroke="url(#lineGradient)"
+          strokeWidth={2.5}
+          dot={{ fill: "#6366f1", r: 4, strokeWidth: 0 }}
+          activeDot={{ r: 6, fill: "#f43f5e", strokeWidth: 0 }}
         />
+        <defs>
+          <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#6366f1" />
+            <stop offset="100%" stopColor="#f43f5e" />
+          </linearGradient>
+        </defs>
       </LineChart>
     </ResponsiveContainer>
   );

@@ -224,11 +224,11 @@ export default function ReaderPage() {
   // ─── Fullscreen Reading Mode ──────────────────────────────────
   if (isRunning) {
     return (
-      <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+      <div className="fixed inset-0 z-[100] bg-[#030308] flex flex-col">
         {/* Top bar: progress */}
-        <div className="w-full h-1 bg-white/10">
+        <div className="w-full h-1 bg-white/5">
           <div
-            className="h-full bg-primary transition-all duration-150"
+            className="h-full bg-gradient-to-r from-primary to-accent transition-all duration-150"
             style={{ width: `${progress * 100}%` }}
           />
         </div>
@@ -353,44 +353,49 @@ export default function ReaderPage() {
 
   // ─── Setup / Result view ──────────────────────────────────────
   return (
-    <div className="min-h-[calc(100vh-64px)] flex flex-col items-center px-4 py-8">
+    <div className="min-h-[calc(100vh-64px)] flex flex-col items-center px-4 py-12">
       <div className="w-full max-w-3xl space-y-8">
-        <h1 className="text-3xl font-bold text-center">RSVP Reader</h1>
+        <div className="text-center space-y-2">
+          <h1 className="text-4xl font-extrabold tracking-tight">RSVP Reader</h1>
+          <p className="text-muted-foreground text-sm">
+            Pick a passage or paste your own, then hit start
+          </p>
+        </div>
 
         {/* Result screen */}
         {showResult && result ? (
-          <div className="rounded-xl bg-card border border-border p-8 space-y-6">
+          <div className="glow-card rounded-2xl p-8 space-y-6 animate-fade-in-up">
             <h2 className="text-2xl font-bold text-center">Session Complete</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 rounded-lg bg-secondary">
+              <div className="text-center p-4 rounded-xl bg-primary/5 border border-primary/10">
                 <div className="text-2xl font-bold text-primary">
                   {result.endWpm}
                 </div>
-                <div className="text-xs text-muted-foreground uppercase">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
                   Max WPM
                 </div>
               </div>
-              <div className="text-center p-4 rounded-lg bg-secondary">
+              <div className="text-center p-4 rounded-xl bg-primary/5 border border-primary/10">
                 <div className="text-2xl font-bold text-primary">
                   {result.totalWordsRead}
                 </div>
-                <div className="text-xs text-muted-foreground uppercase">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
                   Words Read
                 </div>
               </div>
-              <div className="text-center p-4 rounded-lg bg-secondary">
+              <div className="text-center p-4 rounded-xl bg-primary/5 border border-primary/10">
                 <div className="text-2xl font-bold text-primary">
                   {result.durationSec}s
                 </div>
-                <div className="text-xs text-muted-foreground uppercase">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
                   Duration
                 </div>
               </div>
-              <div className="text-center p-4 rounded-lg bg-secondary">
+              <div className="text-center p-4 rounded-xl bg-accent/5 border border-accent/10">
                 <div className="text-2xl font-bold text-accent">
                   {result.stoppedByUser ? "Stopped" : "Finished"}
                 </div>
-                <div className="text-xs text-muted-foreground uppercase">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
                   Status
                 </div>
               </div>
@@ -406,7 +411,7 @@ export default function ReaderPage() {
             <div className="flex justify-center">
               <button
                 onClick={() => setShowResult(false)}
-                className="px-6 py-2 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
+                className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold hover:brightness-110 shadow-lg shadow-primary/20 transition-all"
               >
                 Try Again
               </button>
@@ -414,25 +419,25 @@ export default function ReaderPage() {
           </div>
         ) : (
           /* Passage Selection */
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in-up">
             {/* Toggle between preset and custom */}
-            <div className="flex gap-2">
+            <div className="flex gap-2 p-1 rounded-xl bg-secondary/60 w-fit mx-auto">
               <button
                 onClick={() => setUseCustomText(false)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
                   !useCustomText
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Choose Passage
               </button>
               <button
                 onClick={() => setUseCustomText(true)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
                   useCustomText
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Paste Your Own
@@ -444,14 +449,14 @@ export default function ReaderPage() {
                 value={customText}
                 onChange={(e) => setCustomText(e.target.value)}
                 placeholder="Paste your text here (minimum 20 words)..."
-                className="w-full h-40 p-4 rounded-lg bg-card border border-border text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full h-40 p-4 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow"
               />
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <select
                   value={selectedPassageId}
                   onChange={(e) => setSelectedPassageId(e.target.value)}
-                  className="w-full p-3 rounded-lg bg-card border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow"
                 >
                   {passages.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -460,30 +465,37 @@ export default function ReaderPage() {
                   ))}
                 </select>
                 {selectedPassage && (
-                  <p className="text-sm text-muted-foreground line-clamp-3">
+                  <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3 px-1">
                     {selectedPassage.content.slice(0, 200)}...
                   </p>
                 )}
               </div>
             )}
 
-            <div className="text-sm text-muted-foreground">
-              Words:{" "}
-              {useCustomText
-                ? customText.split(/\s+/).filter((w) => w.length > 0).length
-                : selectedPassage?.content
-                    .split(/\s+/)
-                    .filter((w) => w.length > 0).length || 0}
-              &nbsp;| Starting Speed: 200 WPM | +25 WPM every 30s
+            <div className="flex items-center justify-center gap-3 text-sm text-muted-foreground flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-secondary/60 text-xs">
+                Words:{" "}
+                {useCustomText
+                  ? customText.split(/\s+/).filter((w) => w.length > 0).length
+                  : selectedPassage?.content
+                      .split(/\s+/)
+                      .filter((w) => w.length > 0).length || 0}
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-secondary/60 text-xs">
+                Start: 200 WPM
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-secondary/60 text-xs">
+                +25 WPM / 30s
+              </span>
             </div>
 
             {/* Big Start Button */}
             <div className="flex justify-center pt-4">
               <button
                 onClick={handleStart}
-                className="flex items-center gap-3 px-10 py-4 rounded-xl bg-primary text-primary-foreground font-bold text-xl hover:bg-primary/90 transition-all hover:scale-105 active:scale-100"
+                className="group flex items-center gap-3 px-12 py-4 rounded-2xl bg-primary text-primary-foreground font-bold text-xl shadow-lg shadow-primary/25 hover:shadow-primary/40 hover:brightness-110 transition-all hover:scale-[1.03] active:scale-100"
               >
-                <Play className="w-6 h-6" />
+                <Play className="w-6 h-6 group-hover:scale-110 transition-transform" />
                 Start Reading
               </button>
             </div>

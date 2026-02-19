@@ -35,10 +35,11 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4">
-      <div className="w-full max-w-md space-y-8">
+      <div className="w-full max-w-md">
+        <div className="glow-card rounded-2xl p-8 space-y-6">
         <div className="text-center">
-          <h1 className="text-3xl font-bold">Welcome Back</h1>
-          <p className="text-muted-foreground mt-2">
+          <h1 className="text-3xl font-extrabold tracking-tight">Welcome Back</h1>
+          <p className="text-muted-foreground mt-2 text-sm">
             Sign in to continue your speed reading journey
           </p>
         </div>
@@ -90,7 +91,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:brightness-110 transition-all disabled:opacity-50"
           >
             {loading ? "Signing in..." : "Sign In"}
           </button>
@@ -126,10 +127,11 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{" "}
-          <Link href="/register" className="text-primary underline">
+          <Link href="/register" className="text-primary hover:underline">
             Sign up
           </Link>
         </p>
+        </div>
       </div>
     </div>
   );

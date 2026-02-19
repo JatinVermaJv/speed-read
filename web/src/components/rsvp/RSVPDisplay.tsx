@@ -29,9 +29,9 @@ export function RSVPDisplay({ word, isActive }: RSVPDisplayProps) {
       */}
       <div className="relative w-full h-full flex items-center justify-center">
         {/* Top tick mark at center */}
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-0.5 h-3 bg-accent/40" />
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-0.5 h-4 bg-accent/30 rounded-full" />
         {/* Bottom tick mark at center */}
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-0.5 h-3 bg-accent/40" />
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-0.5 h-4 bg-accent/30 rounded-full" />
 
         {/* Word container — uses CSS grid so the focus col is always at center */}
         <div
@@ -43,15 +43,15 @@ export function RSVPDisplay({ word, isActive }: RSVPDisplayProps) {
           }}
         >
           {/* Before: right-aligned, pushes against the focus char */}
-          <span className="text-right text-muted-foreground/80">
+          <span className="text-right text-white/70">
             {before}
           </span>
 
           {/* Focus character: center column, never moves */}
-          <span className="text-accent font-bold text-center">{focus}</span>
+          <span className="text-accent font-bold text-center drop-shadow-[0_0_12px_rgba(244,63,94,0.4)]">{focus}</span>
 
           {/* After: left-aligned, flows away from focus char */}
-          <span className="text-left text-muted-foreground/80">
+          <span className="text-left text-white/70">
             {after}
           </span>
         </div>

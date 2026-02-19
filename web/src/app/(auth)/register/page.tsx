@@ -47,10 +47,11 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-md space-y-8">
+      <div className="w-full max-w-md">
+        <div className="glow-card rounded-2xl p-8 space-y-6">
         <div className="text-center">
-          <h1 className="text-3xl font-bold">Create Account</h1>
-          <p className="text-muted-foreground mt-2">
+          <h1 className="text-3xl font-extrabold tracking-tight">Create Account</h1>
+          <p className="text-muted-foreground mt-2 text-sm">
             Start tracking your speed reading progress
           </p>
         </div>
@@ -129,7 +130,7 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:brightness-110 transition-all disabled:opacity-50"
           >
             {loading ? "Creating account..." : "Create Account"}
           </button>
@@ -165,10 +166,11 @@ export default function RegisterPage() {
 
         <p className="text-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link href="/login" className="text-primary underline">
+          <Link href="/login" className="text-primary hover:underline">
             Sign in
           </Link>
         </p>
+        </div>
       </div>
     </div>
   );

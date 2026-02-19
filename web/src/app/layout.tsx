@@ -18,10 +18,16 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-background text-foreground antialiased">
+        {/* Ambient background */}
+        <div className="bg-mesh" aria-hidden="true" />
+        <div className="bg-dots" aria-hidden="true" />
+
         <GoogleOAuthWrapper>
           <AuthProvider>
-            <Navbar />
-            <main className="flex-1">{children}</main>
+            <div className="relative z-10">
+              <Navbar />
+              <main className="flex-1">{children}</main>
+            </div>
           </AuthProvider>
         </GoogleOAuthWrapper>
       </body>

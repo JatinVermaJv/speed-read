@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #0a0a0a;
-  --color-foreground: #ededed;
-  --color-primary: #3b82f6;
+  --color-background: #050510;
+  --color-foreground: #eef0f6;
+  --color-primary: #6366f1;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #1e293b;
+  --color-secondary: #141428;
   --color-secondary-foreground: #e2e8f0;
-  --color-accent: #ef4444;
+  --color-accent: #f43f5e;
   --color-accent-foreground: #ffffff;
-  --color-muted: #1e293b;
-  --color-muted-foreground: #94a3b8;
-  --color-card: #111827;
+  --color-muted: #1a1a2e;
+  --color-muted-foreground: #8b8fa3;
+  --color-card: #0c0c1d;
   --color-card-foreground: #f3f4f6;
-  --color-border: #1e293b;
-  --color-input: #1e293b;
-  --color-ring: #3b82f6;
+  --color-border: #1e1e3a;
+  --color-input: #141428;
+  --color-ring: #6366f1;
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
   --radius-sm: 0.25rem;
@@ -33,4 +33,93 @@ body {
 
 * {
   border-color: var(--color-border);
+}
+
+/* ── Ambient background glow ─────────────────────────────────── */
+.bg-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.bg-mesh::before,
+.bg-mesh::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.18;
+}
+.bg-mesh::before {
+  width: 600px;
+  height: 600px;
+  top: -10%;
+  left: -5%;
+  background: radial-gradient(circle, #6366f1 0%, transparent 70%);
+}
+.bg-mesh::after {
+  width: 500px;
+  height: 500px;
+  bottom: -5%;
+  right: -5%;
+  background: radial-gradient(circle, #f43f5e 0%, transparent 70%);
+}
+
+/* ── Dot grid overlay ────────────────────────────────────────── */
+.bg-dots {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* ── Glow card utility ───────────────────────────────────────── */
+.glow-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(244, 63, 94, 0.04));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.glow-card:hover {
+  border-color: rgba(99, 102, 241, 0.25);
+  box-shadow: 0 0 30px -10px rgba(99, 102, 241, 0.2);
+}
+
+/* ── Animated gradient text ──────────────────────────────────── */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.text-gradient {
+  background: linear-gradient(135deg, #6366f1, #a855f7, #f43f5e, #6366f1);
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shift 6s ease infinite;
+}
+
+/* ── Fade-in-up animation ────────────────────────────────────── */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.7s ease-out both;
+}
+.delay-100 { animation-delay: 0.1s; }
+.delay-200 { animation-delay: 0.2s; }
+.delay-300 { animation-delay: 0.3s; }
+.delay-400 { animation-delay: 0.4s; }
+
+/* ── Subtle pulse for hero badge ─────────────────────────────── */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 3s ease-in-out infinite;
 }
