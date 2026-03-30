@@ -99,6 +99,15 @@ sessionsRouter.get("/stats", async (c) => {
     .from(sessions)
     .where(eq(sessions.userId, userId));
 
+  const safeStats =
+    stats ||
+    ({
+      totalSessions: 0,
+      totalWordsRead: 0,
+      bestWpm: 0,
+      averageWpm: 0,
+    } as const);
+
   // WPM over time (last 30 sessions)
   const wpmOverTime = await db
     .select({
@@ -111,10 +120,10 @@ sessionsRouter.get("/stats", async (c) => {
     .limit(30);
 
   return c.json({
-    totalSessions: Number(stats.totalSessions) || 0,
-    totalWordsRead: Number(stats.totalWordsRead) || 0,
-    bestWpm: Number(stats.bestWpm) || 0,
-    averageWpm: Math.round(Number(stats.averageWpm) || 0),
+    totalSessions: Number(safeStats.totalSessions) || 0,
+    totalWordsRead: Number(safeStats.totalWordsRead) || 0,
+    bestWpm: Number(safeStats.bestWpm) || 0,
+    averageWpm: Math.round(Number(safeStats.averageWpm) || 0),
     wpmOverTime: wpmOverTime.map((row) => ({
       date: row.date.toISOString(),
       wpm: row.wpm,

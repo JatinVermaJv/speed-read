@@ -28,6 +28,10 @@ export async function authMiddleware(c: Context, next: Next) {
 
   const token = authHeader.split(" ")[1];
 
+  if (!token) {
+    return c.json({ error: "unauthorized", message: "Missing bearer token" }, 401);
+  }
+
   try {
     const payload = verifyToken(token);
     c.set("userId", payload.userId);

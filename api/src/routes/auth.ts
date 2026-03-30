@@ -92,6 +92,13 @@ auth.post("/register", zValidator("json", registerSchema), async (c) => {
       createdAt: users.createdAt,
     });
 
+  if (!user) {
+    return c.json(
+      { error: "internal_server_error", message: "Failed to create user" },
+      500
+    );
+  }
+
   const { accessToken, refreshToken } = await createTokens(user.id, user.email, user.isAdmin);
 
   setRefreshCookie(c, refreshToken);
@@ -210,6 +217,13 @@ auth.post("/google", zValidator("json", googleSchema), async (c) => {
         updatedAt: new Date(),
       })
       .where(eq(users.id, user.id));
+  }
+
+  if (!user) {
+    return c.json(
+      { error: "internal_server_error", message: "Failed to create Google user" },
+      500
+    );
   }
 
   const { accessToken, refreshToken } = await createTokens(

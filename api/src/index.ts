@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth";
 import passagesRoutes from "./routes/passages";
 import sessionsRoutes from "./routes/sessions";
 import adminRoutes from "./routes/admin";
+import unseenRoutes from "./routes/unseen";
 
 const app = new Hono();
 
@@ -39,6 +40,7 @@ app.route("/auth", authRoutes);
 app.route("/passages", passagesRoutes);
 app.route("/sessions", sessionsRoutes);
 app.route("/admin", adminRoutes);
+app.route("/unseen", unseenRoutes);
 
 // ─── Health Check ───────────────────────────────────────────────────────────
 

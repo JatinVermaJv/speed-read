@@ -1,5 +1,19 @@
 import { db } from "./index";
-import { passages } from "./schema";
+import { and, eq } from "drizzle-orm";
+import {
+  difficultyLevels,
+  passages,
+  unseenPassages,
+  unseenQuestions,
+  unseenQuestionOptions,
+} from "./schema";
+import { HARD_CODED_UNSEEN_PASSAGES } from "../utils/hardcodedUnseen";
+
+const seedDifficulties = [
+  { key: "easy", label: "Easy", sortOrder: 1, defaultTimeLimitSec: 150 },
+  { key: "medium", label: "Medium", sortOrder: 2, defaultTimeLimitSec: 180 },
+  { key: "hard", label: "Hard", sortOrder: 3, defaultTimeLimitSec: 240 },
+];
 
 const seedPassages = [
   {
@@ -40,6 +54,100 @@ const seedPassages = [
   },
 ];
 
+function sanitizeText(input: string): string {
+  return input.replace(/<[^>]*>/g, "").trim();
+}
+
+async function seedDifficultyData() {
+  console.log("Seeding difficulty levels...");
+  await db
+    .insert(difficultyLevels)
+    .values(
+      seedDifficulties.map((difficulty) => ({
+        key: difficulty.key,
+        label: difficulty.label,
+        sortOrder: difficulty.sortOrder,
+        defaultTimeLimitSec: difficulty.defaultTimeLimitSec,
+        isActive: true,
+      }))
+    )
+    .onConflictDoNothing({ target: difficultyLevels.key });
+}
+
+async function seedHardcodedUnseenData() {
+  console.log("Seeding hardcoded unseen passages...");
+
+  for (const unseen of HARD_CODED_UNSEEN_PASSAGES) {
+    const [existing] = await db
+      .select({ id: unseenPassages.id })
+      .from(unseenPassages)
+      .where(
+        and(
+          eq(unseenPassages.title, unseen.title),
+          eq(unseenPassages.sourceType, "hardcoded")
+        )
+      )
+      .limit(1);
+
+    if (existing) {
+      console.log(`  - Skipping ${unseen.title} (already exists)`);
+      continue;
+    }
+
+    const sanitizedContent = sanitizeText(unseen.content);
+    const wordCount = sanitizedContent
+      .split(/\s+/)
+      .filter((word) => word.length > 0).length;
+
+    const [createdPassage] = await db
+      .insert(unseenPassages)
+      .values({
+        title: sanitizeText(unseen.title),
+        content: sanitizedContent,
+        wordCount,
+        theme: sanitizeText(unseen.theme),
+        keywords: null,
+        difficultyKey: unseen.difficultyKey,
+        timeLimitSec: unseen.timeLimitSec,
+        isPublished: true,
+        sourceType: "hardcoded",
+        createdBy: null,
+      })
+      .returning({ id: unseenPassages.id });
+
+    if (!createdPassage) {
+      throw new Error("Failed to create hardcoded unseen passage");
+    }
+
+    for (const [qIndex, question] of unseen.questions.entries()) {
+      const [createdQuestion] = await db
+        .insert(unseenQuestions)
+        .values({
+          unseenPassageId: createdPassage.id,
+          prompt: sanitizeText(question.prompt),
+          explanation: question.explanation ? sanitizeText(question.explanation) : null,
+          orderIndex: qIndex + 1,
+        })
+        .returning({ id: unseenQuestions.id });
+
+      if (!createdQuestion) {
+        throw new Error("Failed to create hardcoded unseen question");
+      }
+
+      await db.insert(unseenQuestionOptions).values(
+        question.options.map((option, optionIndex) => ({
+          questionId: createdQuestion.id,
+          text: sanitizeText(option.text),
+          isCorrect: option.isCorrect,
+          orderIndex: optionIndex + 1,
+        }))
+      );
+    }
+
+    console.log(`  ✓ ${unseen.title} (${wordCount} words)`);
+  }
+}
+
 async function seed() {
   console.log("Seeding passages...");
 
@@ -57,6 +165,9 @@ async function seed() {
 
     console.log(`  ✓ ${p.title} (${wordCount} words)`);
   }
+
+  await seedDifficultyData();
+  await seedHardcodedUnseenData();
 
   console.log("Seeding complete!");
   process.exit(0);
