@@ -21,7 +21,7 @@ export interface Passage {
 export interface Session {
   id: string;
   userId: string;
-  passageId: string;
+  passageId: string | null;
   passageTitle?: string;
   startWpm: number;
   endWpm: number;
@@ -49,4 +49,68 @@ export interface AuthTokens {
 export interface ApiError {
   error: string;
   message: string;
+}
+
+export interface UnseenPassageSummary {
+  id: string;
+  title: string;
+  theme: string;
+  wordCount: number;
+  difficultyKey: string;
+  timeLimitSec: number;
+  sourceType: string;
+  isPublished: boolean;
+  isOwnedByUser?: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface UnseenAttemptState {
+  id: string;
+  status: string;
+  attemptNumber: number;
+  startedAt: string;
+  passageExpiresAt: string;
+  submittedAt: string | null;
+  scorePercent: number | null;
+  totalQuestions: number | null;
+  correctAnswers: number | null;
+  durationSec: number | null;
+}
+
+export interface UnseenAttemptLog {
+  id: string;
+  unseenPassageId: string;
+  title: string;
+  theme: string;
+  difficultyKey: string;
+  sourceType: string;
+  attemptNumber: number;
+  status: string;
+  scorePercent: number | null;
+  totalQuestions: number | null;
+  correctAnswers: number | null;
+  durationSec: number | null;
+  startedAt: string;
+  passageExpiresAt: string;
+  submittedAt: string | null;
+  createdAt: string;
+}
+
+export interface UnseenQuestionOption {
+  id: string;
+  text: string;
+  orderIndex: number;
+  isCorrect?: boolean;
+}
+
+export interface UnseenQuestion {
+  id: string;
+  prompt: string;
+  explanation: string | null;
+  orderIndex: number;
+  selectedOptionId?: string | null;
+  correctOptionId?: string | null;
+  isCorrect?: boolean;
+  options: UnseenQuestionOption[];
 }

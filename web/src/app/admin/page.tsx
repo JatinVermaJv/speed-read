@@ -7,6 +7,7 @@ import api from "@/lib/api";
 import {
   Users,
   BookOpen,
+  FileQuestion,
   Zap,
   Trophy,
   Clock,
@@ -15,6 +16,8 @@ import {
   Trash2,
   ShieldCheck,
   ShieldOff,
+  Eye,
+  EyeOff,
   Plus,
   X,
 } from "lucide-react";
@@ -45,6 +48,29 @@ interface AdminPassage {
   createdAt: string;
 }
 
+interface AdminUnseenPassage {
+  id: string;
+  title: string;
+  theme: string;
+  wordCount: number;
+  difficultyKey: string;
+  timeLimitSec: number;
+  sourceType: string;
+  isPublished: boolean;
+  createdBy: string | null;
+  authorName: string | null;
+  questionCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UnseenQuestionDraft {
+  prompt: string;
+  explanation: string;
+  options: string[];
+  correctIndex: number;
+}
+
 interface PlatformStats {
   totalUsers: number;
   totalSessions: number;
@@ -66,6 +92,15 @@ function formatDuration(totalSec: number): string {
   return `${days}d ${remainHrs}h`;
 }
 
+function createDefaultQuestions(): UnseenQuestionDraft[] {
+  return Array.from({ length: 5 }, () => ({
+    prompt: "",
+    explanation: "",
+    options: ["", "", "", ""],
+    correctIndex: 0,
+  }));
+}
+
 export default function AdminPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
@@ -73,6 +108,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [userList, setUserList] = useState<AdminUser[]>([]);
   const [passageList, setPassageList] = useState<AdminPassage[]>([]);
+  const [unseenList, setUnseenList] = useState<AdminUnseenPassage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -85,6 +121,19 @@ export default function AdminPage() {
   const [pIsDefault, setPIsDefault] = useState(true);
   const [pSaving, setPSaving] = useState(false);
 
+  // Unseen form state
+  const [showUnseenForm, setShowUnseenForm] = useState(false);
+  const [uTitle, setUTitle] = useState("");
+  const [uContent, setUContent] = useState("");
+  const [uTheme, setUTheme] = useState("General");
+  const [uDifficultyKey, setUDifficultyKey] = useState("medium");
+  const [uTimeLimitSec, setUTimeLimitSec] = useState(180);
+  const [uIsPublished, setUIsPublished] = useState(true);
+  const [uQuestions, setUQuestions] = useState<UnseenQuestionDraft[]>(
+    createDefaultQuestions()
+  );
+  const [uSaving, setUSaving] = useState(false);
+
   // Confirm modal state
   const [confirm, setConfirm] = useState<{
     message: string;
@@ -92,7 +141,7 @@ export default function AdminPage() {
   } | null>(null);
 
   // Active tab
-  const [tab, setTab] = useState<"users" | "passages">("users");
+  const [tab, setTab] = useState<"users" | "passages" | "unseen">("users");
 
   useEffect(() => {
     if (!authLoading && (!user || !user.isAdmin)) {
@@ -103,14 +152,16 @@ export default function AdminPage() {
   const fetchData = useCallback(async () => {
     if (!user || !user.isAdmin) return;
     try {
-      const [statsRes, usersRes, passagesRes] = await Promise.all([
+      const [statsRes, usersRes, passagesRes, unseenRes] = await Promise.all([
         api.get("/admin/stats"),
         api.get("/admin/users"),
         api.get("/admin/passages"),
+        api.get("/admin/unseen"),
       ]);
       setStats(statsRes.data);
       setUserList(usersRes.data.users || []);
       setPassageList(passagesRes.data.passages || []);
+      setUnseenList(unseenRes.data.unseenPassages || []);
     } catch {
       setError("Failed to load admin data");
     } finally {
@@ -191,6 +242,75 @@ export default function AdminPage() {
     }
   };
 
+  const createUnseenPassage = async () => {
+    setUSaving(true);
+    try {
+      await api.post("/admin/unseen", {
+        title: uTitle,
+        content: uContent,
+        theme: uTheme,
+        difficultyKey: uDifficultyKey,
+        timeLimitSec: uTimeLimitSec,
+        isPublished: uIsPublished,
+        questions: uQuestions.map((question) => ({
+          prompt: question.prompt,
+          explanation: question.explanation || undefined,
+          options: question.options.map((text, index) => ({
+            text,
+            isCorrect: index === question.correctIndex,
+          })),
+        })),
+      });
+
+      setUTitle("");
+      setUContent("");
+      setUTheme("General");
+      setUDifficultyKey("medium");
+      setUTimeLimitSec(180);
+      setUIsPublished(true);
+      setUQuestions(createDefaultQuestions());
+      setShowUnseenForm(false);
+
+      const res = await api.get("/admin/unseen");
+      setUnseenList(res.data.unseenPassages || []);
+    } catch {
+      setError("Failed to create unseen passage");
+    } finally {
+      setUSaving(false);
+    }
+  };
+
+  const toggleUnseenPublish = async (passageId: string, isPublished: boolean) => {
+    setActionLoading(passageId);
+    try {
+      await api.patch(`/admin/unseen/${passageId}/publish`, {
+        isPublished: !isPublished,
+      });
+      setUnseenList((prev) =>
+        prev.map((item) =>
+          item.id === passageId ? { ...item, isPublished: !isPublished } : item
+        )
+      );
+    } catch {
+      setError("Failed to update unseen visibility");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const deleteUnseenPassage = async (passageId: string) => {
+    setActionLoading(passageId);
+    try {
+      await api.delete(`/admin/unseen/${passageId}`);
+      setUnseenList((prev) => prev.filter((item) => item.id !== passageId));
+    } catch {
+      setError("Failed to delete unseen passage");
+    } finally {
+      setActionLoading(null);
+      setConfirm(null);
+    }
+  };
+
   // ── Guards ────────────────────────────────────────────────────
 
   if (authLoading || !user || !user.isAdmin) {
@@ -257,6 +377,19 @@ export default function AdminPage() {
   const wordCount = pContent
     .split(/\s+/)
     .filter((w) => w.length > 0).length;
+
+  const unseenWordCount = uContent
+    .split(/\s+/)
+    .filter((w) => w.length > 0).length;
+
+  const unseenFormValid =
+    uTitle.trim().length > 0 &&
+    unseenWordCount >= 80 &&
+    uQuestions.every(
+      (question) =>
+        question.prompt.trim().length > 0 &&
+        question.options.every((option) => option.trim().length > 0)
+    );
 
   return (
     <div className="min-h-[calc(100vh-64px)] px-4 py-10">
@@ -330,6 +463,18 @@ export default function AdminPage() {
           >
             <span className="flex items-center gap-1.5">
               <BookOpen className="w-4 h-4" /> Passages ({passageList.length})
+            </span>
+          </button>
+          <button
+            onClick={() => setTab("unseen")}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+              tab === "unseen"
+                ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <FileQuestion className="w-4 h-4" /> Unseen ({unseenList.length})
             </span>
           </button>
         </div>
@@ -641,6 +786,293 @@ export default function AdminPage() {
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Unseen Tab ───────────────────────────────────────── */}
+        {tab === "unseen" && (
+          <div className="space-y-6 animate-fade-in-up">
+            {!showUnseenForm ? (
+              <button
+                onClick={() => setShowUnseenForm(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-sm shadow-md shadow-primary/20 hover:brightness-110 transition-all"
+              >
+                <Plus className="w-4 h-4" /> Add Unseen Passage
+              </button>
+            ) : (
+              <div className="glow-card rounded-2xl p-6 space-y-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">New Unseen Passage (5 MCQs)</h3>
+                  <button
+                    onClick={() => setShowUnseenForm(false)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <input
+                    value={uTitle}
+                    onChange={(e) => setUTitle(e.target.value)}
+                    placeholder="Unseen title"
+                    className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                  />
+                  <input
+                    value={uTheme}
+                    onChange={(e) => setUTheme(e.target.value)}
+                    placeholder="Theme"
+                    className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                  />
+                  <select
+                    value={uDifficultyKey}
+                    onChange={(e) => setUDifficultyKey(e.target.value)}
+                    className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                  >
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={30}
+                    max={1800}
+                    value={uTimeLimitSec}
+                    onChange={(e) => setUTimeLimitSec(Number(e.target.value) || 180)}
+                    placeholder="Time limit (seconds)"
+                    className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                  />
+                </div>
+
+                <textarea
+                  value={uContent}
+                  onChange={(e) => setUContent(e.target.value)}
+                  placeholder="Paste unseen passage content here (min 80 words)..."
+                  rows={6}
+                  className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none"
+                />
+
+                <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={uIsPublished}
+                    onChange={(e) => setUIsPublished(e.target.checked)}
+                    className="w-4 h-4 rounded accent-primary"
+                  />
+                  Publish immediately
+                </label>
+
+                <div className="space-y-4">
+                  {uQuestions.map((question, qIndex) => (
+                    <div key={qIndex} className="rounded-xl border border-border/60 p-4 space-y-3 bg-card/30">
+                      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                        Question {qIndex + 1}
+                      </div>
+                      <input
+                        value={question.prompt}
+                        onChange={(e) =>
+                          setUQuestions((prev) =>
+                            prev.map((item, index) =>
+                              index === qIndex
+                                ? { ...item, prompt: e.target.value }
+                                : item
+                            )
+                          )
+                        }
+                        placeholder="Question prompt"
+                        className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                      />
+                      <input
+                        value={question.explanation}
+                        onChange={(e) =>
+                          setUQuestions((prev) =>
+                            prev.map((item, index) =>
+                              index === qIndex
+                                ? { ...item, explanation: e.target.value }
+                                : item
+                            )
+                          )
+                        }
+                        placeholder="Explanation (optional)"
+                        className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                      />
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {question.options.map((optionText, optionIndex) => (
+                          <div key={optionIndex} className="flex items-center gap-2">
+                            <input
+                              value={optionText}
+                              onChange={(e) =>
+                                setUQuestions((prev) =>
+                                  prev.map((item, index) =>
+                                    index === qIndex
+                                      ? {
+                                          ...item,
+                                          options: item.options.map((option, optIndex) =>
+                                            optIndex === optionIndex ? e.target.value : option
+                                          ),
+                                        }
+                                      : item
+                                  )
+                                )
+                              }
+                              placeholder={`Option ${optionIndex + 1}`}
+                              className="flex-1 p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                            />
+                            <label className="inline-flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
+                              <input
+                                type="radio"
+                                name={`correct-${qIndex}`}
+                                checked={question.correctIndex === optionIndex}
+                                onChange={() =>
+                                  setUQuestions((prev) =>
+                                    prev.map((item, index) =>
+                                      index === qIndex
+                                        ? { ...item, correctIndex: optionIndex }
+                                        : item
+                                    )
+                                  )
+                                }
+                                className="w-4 h-4 accent-primary"
+                              />
+                              Correct
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    {unseenWordCount} words | 5 questions required
+                  </span>
+                  <button
+                    onClick={createUnseenPassage}
+                    disabled={uSaving || !unseenFormValid}
+                    className="px-6 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-sm shadow-md shadow-primary/20 hover:brightness-110 transition-all disabled:opacity-40"
+                  >
+                    {uSaving ? "Saving..." : "Create Unseen"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="glow-card rounded-2xl overflow-hidden">
+              <div className="p-6 border-b border-border/60 flex items-center justify-between">
+                <h2 className="text-lg font-semibold">All Unseen Passages</h2>
+                <span className="text-xs text-muted-foreground">
+                  {unseenList.length} unseen{unseenList.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+
+              {unseenList.length === 0 ? (
+                <div className="p-10 text-center text-muted-foreground">
+                  No unseen passages yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/60">
+                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Title
+                        </th>
+                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Theme
+                        </th>
+                        <th className="text-center p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Difficulty
+                        </th>
+                        <th className="text-right p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Timer
+                        </th>
+                        <th className="text-right p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          MCQs
+                        </th>
+                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Source
+                        </th>
+                        <th className="text-center p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Visibility
+                        </th>
+                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Author
+                        </th>
+                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Created
+                        </th>
+                        <th className="text-center p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unseenList.map((item) => (
+                        <tr
+                          key={item.id}
+                          className="border-b border-border/30 last:border-0 hover:bg-white/[0.02] transition-colors"
+                        >
+                          <td className="p-4 font-medium max-w-[220px] truncate">{item.title}</td>
+                          <td className="p-4 text-muted-foreground">{item.theme}</td>
+                          <td className="p-4 text-center text-muted-foreground uppercase">
+                            {item.difficultyKey}
+                          </td>
+                          <td className="p-4 text-right font-mono">{item.timeLimitSec}s</td>
+                          <td className="p-4 text-right font-mono">{item.questionCount}</td>
+                          <td className="p-4 text-muted-foreground capitalize">{item.sourceType}</td>
+                          <td className="p-4 text-center">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                item.isPublished
+                                  ? "bg-green-500/10 text-green-400"
+                                  : "bg-secondary text-muted-foreground"
+                              }`}
+                            >
+                              {item.isPublished ? "Published" : "Hidden"}
+                            </span>
+                          </td>
+                          <td className="p-4 text-muted-foreground">{item.authorName || "System"}</td>
+                          <td className="p-4 text-muted-foreground">
+                            {new Date(item.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                disabled={actionLoading === item.id}
+                                onClick={() => toggleUnseenPublish(item.id, item.isPublished)}
+                                title={item.isPublished ? "Hide unseen" : "Publish unseen"}
+                                className="p-1.5 rounded-lg hover:bg-primary/10 text-primary transition-colors disabled:opacity-40"
+                              >
+                                {item.isPublished ? (
+                                  <EyeOff className="w-4 h-4" />
+                                ) : (
+                                  <Eye className="w-4 h-4" />
+                                )}
+                              </button>
+                              <button
+                                disabled={actionLoading === item.id}
+                                onClick={() =>
+                                  setConfirm({
+                                    message: `Delete unseen passage "${item.title}"? This cannot be undone.`,
+                                    onConfirm: () => deleteUnseenPassage(item.id),
+                                  })
+                                }
+                                title="Delete unseen"
+                                className="p-1.5 rounded-lg hover:bg-destructive/10 text-destructive transition-colors disabled:opacity-40"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

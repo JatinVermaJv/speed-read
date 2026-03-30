@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { BookOpen, BarChart3, LogOut, Menu, X, Shield } from "lucide-react";
+import {
+  BookOpen,
+  BarChart3,
+  LogOut,
+  Menu,
+  X,
+  Shield,
+  FileQuestion,
+} from "lucide-react";
 import { useState } from "react";
 
 export function Navbar() {
@@ -32,6 +40,13 @@ export function Navbar() {
           >
             <BarChart3 className="w-4 h-4" />
             Dashboard
+          </Link>
+          <Link
+            href="/unseen"
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <FileQuestion className="w-4 h-4" />
+            Unseen
           </Link>
 
           {isLoading ? (
@@ -100,6 +115,13 @@ export function Navbar() {
             onClick={() => setMobileOpen(false)}
           >
             Dashboard
+          </Link>
+          <Link
+            href="/unseen"
+            className="block text-muted-foreground hover:text-foreground"
+            onClick={() => setMobileOpen(false)}
+          >
+            Unseen
           </Link>
           {user ? (
             <>
