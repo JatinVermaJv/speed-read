@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import type {
-  UnseenAttemptLog,
   UnseenAttemptState,
   UnseenPassageSummary,
   UnseenQuestion,
@@ -21,7 +20,6 @@ import {
 } from "lucide-react";
 
 type ViewStage = "pick" | "reading" | "questions" | "result";
-type LogDateFilter = "all" | "7d" | "30d" | "90d";
 
 interface ActiveReadingPassage {
   id: string;
@@ -66,14 +64,6 @@ function formatDuration(totalSec: number | null): string {
   return `${mins}m ${secs}s`;
 }
 
-function formatAttemptStatus(status: string): string {
-  return status
-    .split("_")
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
-}
-
 export default function UnseenPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
@@ -86,11 +76,6 @@ export default function UnseenPage() {
 
   const [passages, setPassages] = useState<UnseenPassageSummary[]>([]);
   const [selectedPassageId, setSelectedPassageId] = useState("");
-  const [attemptLogs, setAttemptLogs] = useState<UnseenAttemptLog[]>([]);
-  const [logsLoading, setLogsLoading] = useState(true);
-  const [logStatusFilter, setLogStatusFilter] = useState<string>("all");
-  const [logDifficultyFilter, setLogDifficultyFilter] = useState<string>("all");
-  const [logDateFilter, setLogDateFilter] = useState<LogDateFilter>("all");
 
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [activePassage, setActivePassage] = useState<ActiveReadingPassage | null>(null);
@@ -118,54 +103,6 @@ export default function UnseenPage() {
     [passages, selectedPassageId]
   );
 
-  const statusOptions = useMemo(
-    () => Array.from(new Set(attemptLogs.map((attempt) => attempt.status))).sort(),
-    [attemptLogs]
-  );
-
-  const difficultyOptions = useMemo(
-    () => Array.from(new Set(attemptLogs.map((attempt) => attempt.difficultyKey))).sort(),
-    [attemptLogs]
-  );
-
-  const filteredAttemptLogs = useMemo(() => {
-    const now = Date.now();
-    const cutoffMap: Record<Exclude<LogDateFilter, "all">, number> = {
-      "7d": now - 7 * 24 * 60 * 60 * 1000,
-      "30d": now - 30 * 24 * 60 * 60 * 1000,
-      "90d": now - 90 * 24 * 60 * 60 * 1000,
-    };
-
-    return attemptLogs.filter((attempt) => {
-      if (logStatusFilter !== "all" && attempt.status !== logStatusFilter) {
-        return false;
-      }
-
-      if (
-        logDifficultyFilter !== "all" &&
-        attempt.difficultyKey !== logDifficultyFilter
-      ) {
-        return false;
-      }
-
-      if (logDateFilter === "all") {
-        return true;
-      }
-
-      const createdAtMs = new Date(attempt.createdAt).getTime();
-      if (Number.isNaN(createdAtMs)) {
-        return false;
-      }
-
-      return createdAtMs >= cutoffMap[logDateFilter];
-    });
-  }, [attemptLogs, logStatusFilter, logDifficultyFilter, logDateFilter]);
-
-  const hasActiveLogFilters =
-    logStatusFilter !== "all" ||
-    logDifficultyFilter !== "all" ||
-    logDateFilter !== "all";
-
   const fetchPassages = async () => {
     try {
       const { data } = await api.get("/unseen");
@@ -184,22 +121,9 @@ export default function UnseenPage() {
     }
   };
 
-  const fetchAttemptLogs = async () => {
-    try {
-      const { data } = await api.get("/unseen/attempts");
-      setAttemptLogs(data.attempts || []);
-    } catch {
-      setAttemptLogs([]);
-    } finally {
-      setLogsLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (!user) return;
-    setLogsLoading(true);
     void fetchPassages();
-    void fetchAttemptLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -335,8 +259,7 @@ export default function UnseenPage() {
     setResult(null);
     setRemainingSec(0);
     setQuestionRequested(false);
-    setLogsLoading(true);
-    await Promise.all([fetchPassages(), fetchAttemptLogs()]);
+    await fetchPassages();
   };
 
   if (authLoading || !user) {
@@ -516,150 +439,6 @@ export default function UnseenPage() {
                   Generate & Start
                 </button>
               </div>
-            </div>
-
-            <div className="glow-card rounded-2xl overflow-hidden">
-              <div className="p-6 border-b border-border/60 flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold">Unseen Logs</h2>
-                <span className="text-xs text-muted-foreground">
-                  {filteredAttemptLogs.length} / {attemptLogs.length} attempts
-                </span>
-              </div>
-
-              {!logsLoading && attemptLogs.length > 0 && (
-                <div className="px-6 py-4 border-b border-border/60 bg-card/20">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <select
-                      value={logStatusFilter}
-                      onChange={(e) => setLogStatusFilter(e.target.value)}
-                      className="w-full p-2.5 rounded-lg bg-card/80 border border-border text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring/50"
-                    >
-                      <option value="all">All Statuses</option>
-                      {statusOptions.map((status) => (
-                        <option key={status} value={status}>
-                          {formatAttemptStatus(status)}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={logDifficultyFilter}
-                      onChange={(e) => setLogDifficultyFilter(e.target.value)}
-                      className="w-full p-2.5 rounded-lg bg-card/80 border border-border text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring/50"
-                    >
-                      <option value="all">All Difficulties</option>
-                      {difficultyOptions.map((difficulty) => (
-                        <option key={difficulty} value={difficulty}>
-                          {difficulty}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={logDateFilter}
-                      onChange={(e) => setLogDateFilter(e.target.value as LogDateFilter)}
-                      className="w-full p-2.5 rounded-lg bg-card/80 border border-border text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring/50"
-                    >
-                      <option value="all">All Time</option>
-                      <option value="7d">Last 7 Days</option>
-                      <option value="30d">Last 30 Days</option>
-                      <option value="90d">Last 90 Days</option>
-                    </select>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLogStatusFilter("all");
-                        setLogDifficultyFilter("all");
-                        setLogDateFilter("all");
-                      }}
-                      disabled={!hasActiveLogFilters}
-                      className="w-full p-2.5 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-40"
-                    >
-                      Clear Filters
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {logsLoading ? (
-                <div className="p-10 text-center text-muted-foreground text-sm">
-                  Loading unseen attempt logs...
-                </div>
-              ) : attemptLogs.length === 0 ? (
-                <div className="p-10 text-center text-muted-foreground text-sm">
-                  No unseen attempts yet. Start one above to create your first log.
-                </div>
-              ) : filteredAttemptLogs.length === 0 ? (
-                <div className="p-10 text-center text-muted-foreground text-sm">
-                  No unseen logs match the current filters.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border/60">
-                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
-                          Passage
-                        </th>
-                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
-                          Date
-                        </th>
-                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="text-right p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
-                          Score
-                        </th>
-                        <th className="text-right p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
-                          Time
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredAttemptLogs.map((attempt) => (
-                        <tr
-                          key={attempt.id}
-                          className="border-b border-border/30 last:border-0 hover:bg-white/[0.02] transition-colors"
-                        >
-                          <td className="p-4 max-w-[340px]">
-                            <div className="font-medium text-foreground truncate">{attempt.title}</div>
-                            <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-2">
-                              <span>{attempt.theme}</span>
-                              <span>•</span>
-                              <span>{attempt.difficultyKey}</span>
-                              <span>•</span>
-                              <span>#{attempt.attemptNumber}</span>
-                            </div>
-                          </td>
-                          <td className="p-4 text-muted-foreground whitespace-nowrap">
-                            {new Date(attempt.createdAt).toLocaleDateString()}
-                          </td>
-                          <td className="p-4 whitespace-nowrap">
-                            <span
-                              className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                attempt.status === "submitted"
-                                  ? "bg-green-500/15 text-green-400"
-                                  : "bg-amber-500/15 text-amber-300"
-                              }`}
-                            >
-                              {formatAttemptStatus(attempt.status)}
-                            </span>
-                          </td>
-                          <td className="p-4 text-right whitespace-nowrap font-semibold">
-                            {attempt.scorePercent === null
-                              ? "-"
-                              : `${attempt.scorePercent}%`}
-                          </td>
-                          <td className="p-4 text-right font-mono text-primary font-semibold whitespace-nowrap">
-                            {formatDuration(attempt.durationSec)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           </div>
         )}
