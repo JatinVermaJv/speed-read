@@ -88,6 +88,21 @@ const submitAnswersSchema = z.object({
     }),
 });
 
+function makeTraceId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function isDebugOpenRouterEnabled(): boolean {
+  const raw = (
+    process.env.DEBUG_OPENROUTER ||
+    process.env.OPENROUTER_DEBUG ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 function sanitizeText(input: string): string {
   return input.replace(/<[^>]*>/g, "").trim();
 }
@@ -340,6 +355,23 @@ unseenRouter.post("/generate", zValidator("json", generateSchema), async (c) => 
   const isAdmin = Boolean(c.get("isAdmin"));
   const body = c.req.valid("json");
 
+  const traceId = makeTraceId();
+  const startedAt = Date.now();
+  const debug = isDebugOpenRouterEnabled();
+
+  console.log(`[unseen.generate:${traceId}] start`, {
+    userId,
+    theme: body.theme,
+    keywordsLength: body.keywords?.trim()?.length ?? 0,
+    difficultyKey: body.difficultyKey,
+    timeLimitSec: body.timeLimitSec ?? null,
+    publishRequested: Boolean(body.publish),
+    publishEffective: isAdmin ? Boolean(body.publish) : false,
+    hasOpenRouterKey: Boolean(process.env.OPENROUTER_API_KEY),
+    openRouterModelEnv: process.env.OPENROUTER_MODEL ?? null,
+    openRouterModelsEnv: process.env.OPENROUTER_MODELS ?? null,
+  });
+
   await ensureHardcodedUnseenPassages();
 
   const [difficulty] = await db
@@ -368,6 +400,7 @@ unseenRouter.post("/generate", zValidator("json", generateSchema), async (c) => 
     const generated = await generateUnseenWithOpenRouter({
       theme: body.theme,
       keywords: body.keywords,
+      traceId,
     });
 
     const sanitizedContent = sanitizeText(generated.content);
@@ -427,6 +460,13 @@ unseenRouter.post("/generate", zValidator("json", generateSchema), async (c) => 
       errorMessage: null,
     });
 
+    console.log(`[unseen.generate:${traceId}] success`, {
+      model: generated.model,
+      wordCount: words,
+      passageId: createdPassage.id,
+      durationMs: Date.now() - startedAt,
+    });
+
     return c.json(
       {
         generated: true,
@@ -448,16 +488,35 @@ unseenRouter.post("/generate", zValidator("json", generateSchema), async (c) => 
     const attemptedModels =
       error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
 
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    console.error(`[unseen.generate:${traceId}] failed`, {
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorMessage,
+      attemptedModels,
+      durationMs: Date.now() - startedAt,
+    });
+
+    if (debug && error instanceof Error && error.stack) {
+      console.error(`[unseen.generate:${traceId}] stack`, error.stack);
+    }
+
     await db.insert(aiGenerationUsage).values({
       userId,
       theme: sanitizeText(body.theme),
       keywords: body.keywords?.trim() || null,
       model: attemptedModels[0] || "none",
       status: "failed",
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage,
     });
 
     const fallback = await getFallbackPassage(userId);
+
+    console.warn(`[unseen.generate:${traceId}] fallback`, {
+      fallbackFound: Boolean(fallback),
+      fallbackId: fallback?.id ?? null,
+      fallbackSourceType: fallback?.sourceType ?? null,
+    });
 
     if (!fallback) {
       return c.json(
