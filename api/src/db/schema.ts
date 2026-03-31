@@ -163,8 +163,51 @@ export const aiGenerationUsage = pgTable("ai_generation_usage", {
 
 // ─── Language Learning (Duolingo-MVP) ───────────────────────────────────────
 
+// Admin-created global templates (published to all users)
+
+export const languageCourseTemplates = pgTable("language_course_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  targetLanguageCode: varchar("target_language_code", { length: 20 }).notNull(),
+  level: varchar("level", { length: 20 }).notNull().default("A1"),
+  title: varchar("title", { length: 255 }).notNull(),
+  isPublished: boolean("is_published").notNull().default(false),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const languageLessonTemplates = pgTable("language_lesson_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  courseTemplateId: uuid("course_template_id")
+    .notNull()
+    .references(() => languageCourseTemplates.id, { onDelete: "cascade" }),
+  orderIndex: integer("order_index").notNull().default(0),
+  title: varchar("title", { length: 255 }).notNull(),
+  objective: text("objective").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const languageVocabTemplateItems = pgTable("language_vocab_template_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  lessonTemplateId: uuid("lesson_template_id")
+    .notNull()
+    .references(() => languageLessonTemplates.id, { onDelete: "cascade" }),
+  orderIndex: integer("order_index").notNull().default(0),
+  term: varchar("term", { length: 255 }).notNull(),
+  translation: varchar("translation", { length: 255 }).notNull(),
+  partOfSpeech: varchar("part_of_speech", { length: 60 }),
+  targetExample: text("target_example"),
+  nativeExample: text("native_example"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const languageCourses = pgTable("language_courses", {
   id: uuid("id").primaryKey().defaultRandom(),
+  templateId: uuid("template_id").references(() => languageCourseTemplates.id, {
+    onDelete: "set null",
+  }),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),

@@ -12,30 +12,26 @@ import {
 } from "drizzle-orm";
 import { db } from "../db";
 import {
-  aiGenerationUsage,
   languageAttemptAnswers,
   languageAttempts,
+  languageCourseTemplates,
   languageCourses,
   languageExerciseOptions,
   languageExercises,
+  languageLessonTemplates,
   languageLessons,
   languageVocabItems,
+  languageVocabTemplateItems,
+  users,
 } from "../db/schema";
 import { authMiddleware } from "../middleware/auth";
-import {
-  generateLanguageCoursePlanWithOpenRouter,
-  generateLessonVocabWithOpenRouter,
-} from "../services/openrouterLanguage";
-import { OpenRouterGenerationError } from "../services/openrouter";
 
 const languageRouter = new Hono();
 
 languageRouter.use("/*", authMiddleware);
 
-const generateCourseSchema = z.object({
-  targetLanguageCode: z.string().trim().min(2).max(20),
-  level: z.string().trim().min(1).max(20).optional().default("A1"),
-  lessonCount: z.number().int().min(3).max(30).optional().default(5),
+const enrollSchema = z.object({
+  templateId: z.string().uuid(),
 });
 
 const submitAttemptSchema = z.object({
@@ -64,10 +60,6 @@ const submitAttemptSchema = z.object({
 });
 
 type LessonStatus = "locked" | "available" | "completed";
-
-function makeTraceId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 function sanitizeText(input: string): string {
   return input.replace(/<[^>]*>/g, "").trim();
@@ -106,35 +98,11 @@ function computeExerciseCounts(vocabSize: number): { mcq: number; typing: number
   return { mcq: 1, typing: 1, listening: 0 };
 }
 
-function buildFallbackLessons(lessonCount: number) {
-  const base = [
-    { title: "Greetings", objective: "Say hello, goodbye, and introduce yourself." },
-    { title: "Numbers & Time", objective: "Use numbers and basic time phrases." },
-    { title: "Food & Drinks", objective: "Order food and talk about preferences." },
-    { title: "Travel Basics", objective: "Ask for directions and handle simple travel needs." },
-    { title: "Daily Routine", objective: "Talk about common daily activities." },
-    { title: "Shopping", objective: "Ask about prices, sizes, and common items." },
-    { title: "Family & Friends", objective: "Describe people and simple relationships." },
-    { title: "Weather", objective: "Talk about the weather and seasons." },
-  ];
-
-  const safeCount = Math.min(Math.max(3, lessonCount), 30);
-  const picked = base.slice(0, Math.min(base.length, safeCount));
-
-  while (picked.length < safeCount) {
-    picked.push({
-      title: `Lesson ${picked.length + 1}`,
-      objective: "Practice common beginner words and phrases.",
-    });
-  }
-
-  return picked;
-}
-
-async function getActiveCourse(userId: string) {
-  const [course] = await db
+async function getUserCourses(userId: string) {
+  const rows = await db
     .select({
       id: languageCourses.id,
+      templateId: languageCourses.templateId,
       userId: languageCourses.userId,
       targetLanguageCode: languageCourses.targetLanguageCode,
       level: languageCourses.level,
@@ -144,11 +112,71 @@ async function getActiveCourse(userId: string) {
       updatedAt: languageCourses.updatedAt,
     })
     .from(languageCourses)
-    .where(and(eq(languageCourses.userId, userId), eq(languageCourses.status, "active")))
-    .orderBy(desc(languageCourses.createdAt))
+    .where(eq(languageCourses.userId, userId))
+    .orderBy(desc(languageCourses.createdAt));
+
+  return rows.map((row) => ({
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }));
+}
+
+async function getPublishedTemplates() {
+  const rows = await db
+    .select({
+      id: languageCourseTemplates.id,
+      targetLanguageCode: languageCourseTemplates.targetLanguageCode,
+      level: languageCourseTemplates.level,
+      title: languageCourseTemplates.title,
+      createdAt: languageCourseTemplates.createdAt,
+      updatedAt: languageCourseTemplates.updatedAt,
+      lessonCount: count(languageLessonTemplates.id),
+    })
+    .from(languageCourseTemplates)
+    .leftJoin(
+      languageLessonTemplates,
+      eq(languageLessonTemplates.courseTemplateId, languageCourseTemplates.id)
+    )
+    .where(eq(languageCourseTemplates.isPublished, true))
+    .groupBy(languageCourseTemplates.id)
+    .orderBy(asc(languageCourseTemplates.title));
+
+  return rows.map((row) => ({
+    id: row.id,
+    targetLanguageCode: row.targetLanguageCode,
+    level: row.level,
+    title: row.title,
+    lessonCount: Number(row.lessonCount) || 0,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }));
+}
+
+async function getCourseForUser(userId: string, courseId: string) {
+  const [course] = await db
+    .select({
+      id: languageCourses.id,
+      templateId: languageCourses.templateId,
+      userId: languageCourses.userId,
+      targetLanguageCode: languageCourses.targetLanguageCode,
+      level: languageCourses.level,
+      title: languageCourses.title,
+      status: languageCourses.status,
+      createdAt: languageCourses.createdAt,
+      updatedAt: languageCourses.updatedAt,
+    })
+    .from(languageCourses)
+    .where(and(eq(languageCourses.id, courseId), eq(languageCourses.userId, userId)))
     .limit(1);
 
-  return course || null;
+  if (!course) return null;
+
+  return {
+    ...course,
+    createdAt: course.createdAt.toISOString(),
+    updatedAt: course.updatedAt.toISOString(),
+  };
 }
 
 async function getLessonsForCourse(courseId: string) {
@@ -172,86 +200,6 @@ async function getLessonsForCourse(courseId: string) {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }));
-}
-
-async function ensureLessonVocab(params: {
-  userId: string;
-  targetLanguageCode: string;
-  level: string;
-  lessonId: string;
-  lessonTitle: string;
-  lessonObjective: string;
-  traceId: string;
-}) {
-  const existingCountRows = await db
-    .select({ total: count(languageVocabItems.id) })
-    .from(languageVocabItems)
-    .where(eq(languageVocabItems.lessonId, params.lessonId));
-
-  const existingTotal = Number(existingCountRows[0]?.total || 0);
-  if (existingTotal > 0) {
-    return;
-  }
-
-  const startedAt = Date.now();
-  try {
-    const generated = await generateLessonVocabWithOpenRouter({
-      targetLanguageCode: params.targetLanguageCode,
-      level: params.level,
-      lessonTitle: params.lessonTitle,
-      lessonObjective: params.lessonObjective,
-      vocabCount: 12,
-      traceId: params.traceId,
-    });
-
-    await db.insert(languageVocabItems).values(
-      generated.vocab.map((item, index) => ({
-        lessonId: params.lessonId,
-        orderIndex: index + 1,
-        term: sanitizeText(item.term),
-        translation: sanitizeText(item.translation),
-        partOfSpeech: item.partOfSpeech ? sanitizeText(item.partOfSpeech) : null,
-        targetExample: item.targetExample ? sanitizeText(item.targetExample) : null,
-        nativeExample: item.nativeExample ? sanitizeText(item.nativeExample) : null,
-      }))
-    );
-
-    await db.insert(aiGenerationUsage).values({
-      userId: params.userId,
-      feature: "language_vocab",
-      theme: "language_vocab",
-      keywords: `${params.targetLanguageCode}|${params.level}`,
-      model: generated.model,
-      status: "success",
-      errorMessage: null,
-      metadata: JSON.stringify({
-        lessonId: params.lessonId,
-        lessonTitle: params.lessonTitle,
-        vocabCount: 12,
-        durationMs: Date.now() - startedAt,
-      }),
-    });
-  } catch (error) {
-    const attemptedModels =
-      error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    await db.insert(aiGenerationUsage).values({
-      userId: params.userId,
-      feature: "language_vocab",
-      theme: "language_vocab",
-      keywords: `${params.targetLanguageCode}|${params.level}`,
-      model: attemptedModels[0] || "none",
-      status: "failed",
-      errorMessage,
-      metadata: JSON.stringify({
-        lessonId: params.lessonId,
-        lessonTitle: params.lessonTitle,
-      }),
-    });
-
-    throw error;
-  }
 }
 
 async function ensureLessonExercises(lessonId: string) {
@@ -374,92 +322,184 @@ async function ensureLessonExercises(lessonId: string) {
   }
 }
 
-// ─── Get active course + lessons ───────────────────────────────────────────
+// ─── Catalog (published templates + user's courses) ────────────────────────
 
 languageRouter.get("/", async (c) => {
   const userId = c.get("userId") as string;
 
-  const course = await getActiveCourse(userId);
-  if (!course) {
-    return c.json({ course: null, lessons: [] });
-  }
+  const [templates, courses] = await Promise.all([
+    getPublishedTemplates(),
+    getUserCourses(userId),
+  ]);
 
-  const lessons = await getLessonsForCourse(course.id);
-
-  return c.json({
-    course: {
-      ...course,
-      createdAt: course.createdAt.toISOString(),
-      updatedAt: course.updatedAt.toISOString(),
-    },
-    lessons,
-  });
+  return c.json({ templates, courses });
 });
 
-languageRouter.get("/lessons", async (c) => {
+// ─── Course detail (user-owned) ───────────────────────────────────────────
+
+languageRouter.get("/courses/:courseId", async (c) => {
   const userId = c.get("userId") as string;
+  const courseId = c.req.param("courseId");
 
-  const course = await getActiveCourse(userId);
+  const course = await getCourseForUser(userId, courseId);
   if (!course) {
-    return c.json({ courseId: null, lessons: [] });
+    return c.json({ error: "not_found", message: "Course not found" }, 404);
   }
 
-  const lessons = await getLessonsForCourse(course.id);
-  return c.json({ courseId: course.id, lessons });
+  const lessons = await getLessonsForCourse(courseId);
+  return c.json({ course, lessons });
 });
 
-// ─── Generate course plan with OpenRouter ───────────────────────────────────
+// ─── Enroll into a published template (clones into user tables) ────────────
 
 languageRouter.post(
-  "/course/generate",
-  zValidator("json", generateCourseSchema),
+  "/enroll",
+  zValidator("json", enrollSchema),
   async (c) => {
     const userId = c.get("userId") as string;
-    const body = c.req.valid("json");
+    const { templateId } = c.req.valid("json");
 
-    const traceId = makeTraceId();
-    const startedAt = Date.now();
+    const [existingCourse] = await db
+      .select({
+        id: languageCourses.id,
+        userId: languageCourses.userId,
+        templateId: languageCourses.templateId,
+        targetLanguageCode: languageCourses.targetLanguageCode,
+        level: languageCourses.level,
+        title: languageCourses.title,
+        status: languageCourses.status,
+        createdAt: languageCourses.createdAt,
+        updatedAt: languageCourses.updatedAt,
+      })
+      .from(languageCourses)
+      .where(
+        and(
+          eq(languageCourses.userId, userId),
+          eq(languageCourses.templateId, templateId),
+          eq(languageCourses.status, "active")
+        )
+      )
+      .orderBy(desc(languageCourses.createdAt))
+      .limit(1);
 
-    // Archive any existing active course for the user.
-    await db
-      .update(languageCourses)
-      .set({ status: "archived", updatedAt: new Date() })
-      .where(and(eq(languageCourses.userId, userId), eq(languageCourses.status, "active")));
-
-    try {
-      const generated = await generateLanguageCoursePlanWithOpenRouter({
-        targetLanguageCode: body.targetLanguageCode,
-        level: body.level,
-        lessonCount: body.lessonCount,
-        traceId,
+    if (existingCourse) {
+      const lessons = await getLessonsForCourse(existingCourse.id);
+      return c.json({
+        enrolled: false,
+        course: {
+          ...existingCourse,
+          createdAt: existingCourse.createdAt.toISOString(),
+          updatedAt: existingCourse.updatedAt.toISOString(),
+        },
+        lessons,
       });
+    }
 
-      await db.insert(aiGenerationUsage).values({
-        userId,
-        feature: "language_course_plan",
-        theme: "language_course_plan",
-        keywords: `${body.targetLanguageCode}|${body.level}|${body.lessonCount}`,
-        model: generated.model,
-        status: "success",
-        errorMessage: null,
-        metadata: JSON.stringify({
-          lessonCount: body.lessonCount,
-          durationMs: Date.now() - startedAt,
-        }),
-      });
+    const [template] = await db
+      .select({
+        id: languageCourseTemplates.id,
+        targetLanguageCode: languageCourseTemplates.targetLanguageCode,
+        level: languageCourseTemplates.level,
+        title: languageCourseTemplates.title,
+        isPublished: languageCourseTemplates.isPublished,
+      })
+      .from(languageCourseTemplates)
+      .where(eq(languageCourseTemplates.id, templateId))
+      .limit(1);
 
-      const courseTitle = sanitizeText(generated.courseTitle);
+    if (!template) {
+      return c.json({ error: "not_found", message: "Template not found" }, 404);
+    }
 
-      const [course] = await db
+    if (!template.isPublished) {
+      const [userRow] = await db
+        .select({ isAdmin: users.isAdmin })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!userRow?.isAdmin) {
+        return c.json(
+          { error: "forbidden", message: "Template is not published" },
+          403
+        );
+      }
+    }
+
+    const lessonTemplates = await db
+      .select({
+        id: languageLessonTemplates.id,
+        orderIndex: languageLessonTemplates.orderIndex,
+        title: languageLessonTemplates.title,
+        objective: languageLessonTemplates.objective,
+      })
+      .from(languageLessonTemplates)
+      .where(eq(languageLessonTemplates.courseTemplateId, templateId))
+      .orderBy(asc(languageLessonTemplates.orderIndex));
+
+    if (lessonTemplates.length === 0) {
+      return c.json(
+        { error: "template_incomplete", message: "Template has no lessons" },
+        409
+      );
+    }
+
+    const vocabTemplates = await db
+      .select({
+        lessonOrderIndex: languageLessonTemplates.orderIndex,
+        orderIndex: languageVocabTemplateItems.orderIndex,
+        term: languageVocabTemplateItems.term,
+        translation: languageVocabTemplateItems.translation,
+        partOfSpeech: languageVocabTemplateItems.partOfSpeech,
+        targetExample: languageVocabTemplateItems.targetExample,
+        nativeExample: languageVocabTemplateItems.nativeExample,
+      })
+      .from(languageVocabTemplateItems)
+      .innerJoin(
+        languageLessonTemplates,
+        eq(languageLessonTemplates.id, languageVocabTemplateItems.lessonTemplateId)
+      )
+      .where(eq(languageLessonTemplates.courseTemplateId, templateId))
+      .orderBy(
+        asc(languageLessonTemplates.orderIndex),
+        asc(languageVocabTemplateItems.orderIndex)
+      );
+
+    const vocabCountByLesson = new Map<number, number>();
+    for (const row of vocabTemplates) {
+      vocabCountByLesson.set(
+        row.lessonOrderIndex,
+        (vocabCountByLesson.get(row.lessonOrderIndex) || 0) + 1
+      );
+    }
+
+    for (const lesson of lessonTemplates) {
+      const countForLesson = vocabCountByLesson.get(lesson.orderIndex) || 0;
+      if (countForLesson < 5) {
+        return c.json(
+          {
+            error: "template_incomplete",
+            message: `Template lesson ${lesson.orderIndex} is missing vocabulary`,
+          },
+          409
+        );
+      }
+    }
+
+    const created = await db.transaction(async (tx) => {
+      const now = new Date();
+
+      const [courseRow] = await tx
         .insert(languageCourses)
         .values({
+          templateId: template.id,
           userId,
-          targetLanguageCode: sanitizeText(body.targetLanguageCode),
-          level: sanitizeText(body.level),
-          title: courseTitle,
+          targetLanguageCode: template.targetLanguageCode,
+          level: template.level,
+          title: template.title,
           status: "active",
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: now,
+          updatedAt: now,
         })
         .returning({
           id: languageCourses.id,
@@ -467,122 +507,90 @@ languageRouter.post(
           updatedAt: languageCourses.updatedAt,
         });
 
-      if (!course) {
+      if (!courseRow) {
         throw new Error("Failed to create course");
       }
 
-      await db.insert(languageLessons).values(
-        generated.lessons.map((lesson, index) => ({
-          courseId: course.id,
-          orderIndex: index + 1,
-          title: sanitizeText(lesson.title),
-          objective: sanitizeText(lesson.objective),
-          status: (index === 0 ? "available" : "locked") as LessonStatus,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }))
-      );
-
-      const lessons = await getLessonsForCourse(course.id);
-
-      return c.json(
-        {
-          generated: true,
-          fallback: false,
-          course: {
-            id: course.id,
-            userId,
-            targetLanguageCode: body.targetLanguageCode,
-            level: body.level,
-            title: courseTitle,
-            status: "active",
-            createdAt: course.createdAt.toISOString(),
-            updatedAt: course.updatedAt.toISOString(),
-          },
-          lessons,
-        },
-        201
-      );
-    } catch (error) {
-      const attemptedModels =
-        error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      await db.insert(aiGenerationUsage).values({
-        userId,
-        feature: "language_course_plan",
-        theme: "language_course_plan",
-        keywords: `${body.targetLanguageCode}|${body.level}|${body.lessonCount}`,
-        model: attemptedModels[0] || "none",
-        status: "failed",
-        errorMessage,
-        metadata: JSON.stringify({ lessonCount: body.lessonCount }),
-      });
-
-      const fallbackLessons = buildFallbackLessons(body.lessonCount);
-      const fallbackCourseTitle = `${sanitizeText(body.targetLanguageCode)} Basics (${sanitizeText(body.level)})`;
-
-      const [course] = await db
-        .insert(languageCourses)
-        .values({
-          userId,
-          targetLanguageCode: sanitizeText(body.targetLanguageCode),
-          level: sanitizeText(body.level),
-          title: fallbackCourseTitle,
-          status: "active",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
+      const insertedLessons = await tx
+        .insert(languageLessons)
+        .values(
+          lessonTemplates.map((lesson, idx) => ({
+            courseId: courseRow.id,
+            orderIndex: lesson.orderIndex,
+            title: lesson.title,
+            objective: lesson.objective,
+            status: (idx === 0 ? "available" : "locked") as LessonStatus,
+            createdAt: now,
+            updatedAt: now,
+          }))
+        )
         .returning({
-          id: languageCourses.id,
-          createdAt: languageCourses.createdAt,
-          updatedAt: languageCourses.updatedAt,
+          id: languageLessons.id,
+          orderIndex: languageLessons.orderIndex,
         });
 
-      if (!course) {
-        return c.json(
-          {
-            error: "generation_failed",
-            message: "Course generation failed",
-          },
-          503
-        );
+      const lessonIdByOrder = new Map<number, string>();
+      for (const row of insertedLessons) {
+        lessonIdByOrder.set(row.orderIndex, row.id);
       }
 
-      await db.insert(languageLessons).values(
-        fallbackLessons.map((lesson, index) => ({
-          courseId: course.id,
-          orderIndex: index + 1,
-          title: sanitizeText(lesson.title),
-          objective: sanitizeText(lesson.objective),
-          status: (index === 0 ? "available" : "locked") as LessonStatus,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }))
-      );
+      const vocabInserts = vocabTemplates
+        .map((row) => {
+          const lessonId = lessonIdByOrder.get(row.lessonOrderIndex);
+          if (!lessonId) return null;
+          return {
+            lessonId,
+            orderIndex: row.orderIndex,
+            term: row.term,
+            translation: row.translation,
+            partOfSpeech: row.partOfSpeech,
+            targetExample: row.targetExample,
+            nativeExample: row.nativeExample,
+            createdAt: now,
+          };
+        })
+        .filter(Boolean) as Array<{
+        lessonId: string;
+        orderIndex: number;
+        term: string;
+        translation: string;
+        partOfSpeech: string | null;
+        targetExample: string | null;
+        nativeExample: string | null;
+        createdAt: Date;
+      }>;
 
-      const lessons = await getLessonsForCourse(course.id);
+      if (vocabInserts.length > 0) {
+        await tx.insert(languageVocabItems).values(vocabInserts);
+      }
 
-      return c.json(
-        {
-          generated: false,
-          fallback: true,
-          message: "AI generation failed. A fallback course plan is ready.",
-          course: {
-            id: course.id,
-            userId,
-            targetLanguageCode: body.targetLanguageCode,
-            level: body.level,
-            title: fallbackCourseTitle,
-            status: "active",
-            createdAt: course.createdAt.toISOString(),
-            updatedAt: course.updatedAt.toISOString(),
-          },
-          lessons,
+      return {
+        id: courseRow.id,
+        createdAt: courseRow.createdAt,
+        updatedAt: courseRow.updatedAt,
+      };
+    });
+
+    const lessons = await getLessonsForCourse(created.id);
+
+    return c.json(
+      {
+        enrolled: true,
+        course: {
+          id: created.id,
+          templateId: template.id,
+          userId,
+          targetLanguageCode: template.targetLanguageCode,
+          level: template.level,
+          title: template.title,
+          status: "active",
+          createdAt: created.createdAt.toISOString(),
+          updatedAt: created.updatedAt.toISOString(),
         },
-        201
-      );
-    }
+        lessons,
+      },
+      201
+    );
   }
 );
 
@@ -620,30 +628,6 @@ languageRouter.post("/lessons/:lessonId/start", async (c) => {
     );
   }
 
-  const traceId = makeTraceId();
-
-  try {
-    await ensureLessonVocab({
-      userId,
-      targetLanguageCode: lesson.targetLanguageCode,
-      level: lesson.level,
-      lessonId: lesson.lessonId,
-      lessonTitle: lesson.lessonTitle,
-      lessonObjective: lesson.lessonObjective,
-      traceId,
-    });
-  } catch {
-    return c.json(
-      {
-        error: "generation_failed",
-        message: "Lesson vocabulary generation failed. Please retry shortly.",
-      },
-      503
-    );
-  }
-
-  await ensureLessonExercises(lesson.lessonId);
-
   const vocab = await db
     .select({
       id: languageVocabItems.id,
@@ -657,6 +641,38 @@ languageRouter.post("/lessons/:lessonId/start", async (c) => {
     .from(languageVocabItems)
     .where(eq(languageVocabItems.lessonId, lesson.lessonId))
     .orderBy(asc(languageVocabItems.orderIndex));
+
+  if (vocab.length === 0) {
+    return c.json(
+      {
+        error: "content_missing",
+        message: "Lesson content is not ready yet",
+      },
+      409
+    );
+  }
+
+  if (vocab.length < 5) {
+    return c.json(
+      {
+        error: "content_missing",
+        message: "Lesson vocabulary is incomplete",
+      },
+      409
+    );
+  }
+
+  try {
+    await ensureLessonExercises(lesson.lessonId);
+  } catch {
+    return c.json(
+      {
+        error: "content_missing",
+        message: "Lesson exercises are not ready yet",
+      },
+      409
+    );
+  }
 
   const exercises = await db
     .select({

@@ -14,12 +14,16 @@ import {
   unseenQuestionOptions,
 } from "../db/schema";
 import { authMiddleware, adminMiddleware } from "../middleware/auth";
+import adminLanguageRoutes from "./adminLanguage";
 
 const adminRouter = new Hono();
 
 // All admin routes require authentication + admin role
 adminRouter.use("/*", authMiddleware);
 adminRouter.use("/*", adminMiddleware);
+
+// Language templates (admin-only)
+adminRouter.route("/language", adminLanguageRoutes);
 
 function sanitizeText(input: string): string {
   return input.replace(/<[^>]*>/g, "").trim();

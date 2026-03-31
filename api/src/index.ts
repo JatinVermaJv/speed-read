@@ -23,7 +23,7 @@ app.use(
   cors({
     origin: process.env.CORS_ORIGIN || "http://localhost:3000",
     credentials: true,
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     maxAge: 86400,
   })
