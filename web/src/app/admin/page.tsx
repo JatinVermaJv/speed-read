@@ -19,6 +19,7 @@ import {
   Eye,
   EyeOff,
   Plus,
+  Loader2,
   X,
 } from "lucide-react";
 
@@ -80,6 +81,18 @@ interface PlatformStats {
   platformBestWpm: number;
 }
 
+interface AdminLanguageTemplate {
+  id: string;
+  targetLanguageCode: string;
+  level: string;
+  title: string;
+  isPublished: boolean;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lessonCount: number;
+}
+
 function formatDuration(totalSec: number): string {
   if (totalSec < 60) return `${totalSec}s`;
   const mins = Math.floor(totalSec / 60);
@@ -109,9 +122,11 @@ export default function AdminPage() {
   const [userList, setUserList] = useState<AdminUser[]>([]);
   const [passageList, setPassageList] = useState<AdminPassage[]>([]);
   const [unseenList, setUnseenList] = useState<AdminUnseenPassage[]>([]);
+  const [languageTemplates, setLanguageTemplates] = useState<AdminLanguageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [languageBusy, setLanguageBusy] = useState<string | null>(null);
 
   // Passage form state
   const [showPassageForm, setShowPassageForm] = useState(false);
@@ -134,6 +149,11 @@ export default function AdminPage() {
   );
   const [uSaving, setUSaving] = useState(false);
 
+  // Language template form state
+  const [lTargetLanguageCode, setLTargetLanguageCode] = useState("es-ES");
+  const [lLevel, setLLevel] = useState("A1");
+  const [lLessonCount, setLLessonCount] = useState(5);
+
   // Confirm modal state
   const [confirm, setConfirm] = useState<{
     message: string;
@@ -141,7 +161,7 @@ export default function AdminPage() {
   } | null>(null);
 
   // Active tab
-  const [tab, setTab] = useState<"users" | "passages" | "unseen">("users");
+  const [tab, setTab] = useState<"users" | "passages" | "unseen" | "language">("users");
 
   useEffect(() => {
     if (!authLoading && (!user || !user.isAdmin)) {
@@ -152,16 +172,18 @@ export default function AdminPage() {
   const fetchData = useCallback(async () => {
     if (!user || !user.isAdmin) return;
     try {
-      const [statsRes, usersRes, passagesRes, unseenRes] = await Promise.all([
+      const [statsRes, usersRes, passagesRes, unseenRes, languageRes] = await Promise.all([
         api.get("/admin/stats"),
         api.get("/admin/users"),
         api.get("/admin/passages"),
         api.get("/admin/unseen"),
+        api.get("/admin/language/templates"),
       ]);
       setStats(statsRes.data);
       setUserList(usersRes.data.users || []);
       setPassageList(passagesRes.data.passages || []);
       setUnseenList(unseenRes.data.unseenPassages || []);
+      setLanguageTemplates(languageRes.data.templates || []);
     } catch {
       setError("Failed to load admin data");
     } finally {
@@ -308,6 +330,62 @@ export default function AdminPage() {
     } finally {
       setActionLoading(null);
       setConfirm(null);
+    }
+  };
+
+  // ── Language template actions ─────────────────────────────────
+
+  const refreshLanguageTemplates = async () => {
+    try {
+      const res = await api.get("/admin/language/templates");
+      setLanguageTemplates(res.data.templates || []);
+    } catch {
+      setError("Failed to load language templates");
+    }
+  };
+
+  const generateLanguageTemplate = async () => {
+    setLanguageBusy("generate");
+    try {
+      await api.post("/admin/language/templates/generate", {
+        targetLanguageCode: lTargetLanguageCode,
+        level: lLevel,
+        lessonCount: lLessonCount,
+      });
+      await refreshLanguageTemplates();
+    } catch {
+      setError("Failed to generate language template");
+    } finally {
+      setLanguageBusy(null);
+    }
+  };
+
+  const toggleLanguageTemplatePublish = async (
+    templateId: string,
+    isPublished: boolean
+  ) => {
+    setLanguageBusy(`publish:${templateId}`);
+    try {
+      await api.patch(`/admin/language/templates/${templateId}/publish`, {
+        isPublished: !isPublished,
+      });
+      await refreshLanguageTemplates();
+    } catch {
+      setError("Failed to update template visibility");
+    } finally {
+      setLanguageBusy(null);
+    }
+  };
+
+  const testEnrollLanguageTemplate = async (templateId: string) => {
+    setLanguageBusy(`test:${templateId}`);
+    try {
+      await api.post("/language/enroll", { templateId });
+      router.push("/language");
+    } catch {
+      setError("Failed to enroll into template");
+    } finally {
+      setLanguageBusy(null);
     }
   };
 
@@ -475,6 +553,18 @@ export default function AdminPage() {
           >
             <span className="flex items-center gap-1.5">
               <FileQuestion className="w-4 h-4" /> Unseen ({unseenList.length})
+            </span>
+          </button>
+          <button
+            onClick={() => setTab("language")}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+              tab === "language"
+                ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <Zap className="w-4 h-4" /> Language ({languageTemplates.length})
             </span>
           </button>
         </div>
@@ -1076,6 +1166,184 @@ export default function AdminPage() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Language Tab ─────────────────────────────────────── */}
+        {tab === "language" && (
+          <div className="space-y-6 animate-fade-in-up">
+            <div className="glow-card rounded-2xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Generate Language Template</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input
+                  value={lTargetLanguageCode}
+                  onChange={(e) => setLTargetLanguageCode(e.target.value)}
+                  placeholder="Target language code (e.g. es-ES)"
+                  className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                />
+                <input
+                  value={lLevel}
+                  onChange={(e) => setLLevel(e.target.value)}
+                  placeholder="Level (e.g. A1)"
+                  className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                />
+                <input
+                  type="number"
+                  min={3}
+                  max={30}
+                  value={lLessonCount}
+                  onChange={(e) => setLLessonCount(Number(e.target.value) || 0)}
+                  placeholder="Lesson count"
+                  className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  Generation can take a minute.
+                </span>
+                <button
+                  onClick={generateLanguageTemplate}
+                  disabled={
+                    languageBusy !== null ||
+                    lTargetLanguageCode.trim().length < 2 ||
+                    lLevel.trim().length < 1 ||
+                    lLessonCount < 3 ||
+                    lLessonCount > 30
+                  }
+                  className="px-6 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-sm shadow-md shadow-primary/20 hover:brightness-110 transition-all disabled:opacity-40"
+                >
+                  {languageBusy === "generate" ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Generating...
+                    </span>
+                  ) : (
+                    "Generate Template"
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div className="glow-card rounded-2xl overflow-hidden">
+              <div className="p-6 border-b border-border/60 flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Language Templates</h2>
+                <span className="text-xs text-muted-foreground">
+                  {languageTemplates.length} template
+                  {languageTemplates.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+
+              {languageTemplates.length === 0 ? (
+                <div className="p-10 text-center text-muted-foreground">
+                  No language templates yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/60">
+                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Title
+                        </th>
+                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Language
+                        </th>
+                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Level
+                        </th>
+                        <th className="text-right p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Lessons
+                        </th>
+                        <th className="text-center p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Visibility
+                        </th>
+                        <th className="text-left p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Created
+                        </th>
+                        <th className="text-center p-4 text-muted-foreground font-medium text-xs uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {languageTemplates.map((t) => {
+                        const publishBusy = languageBusy === `publish:${t.id}`;
+                        const testBusy = languageBusy === `test:${t.id}`;
+
+                        return (
+                          <tr
+                            key={t.id}
+                            className="border-b border-border/30 last:border-0 hover:bg-white/[0.02] transition-colors"
+                          >
+                            <td className="p-4 font-medium max-w-[320px] truncate">
+                              {t.title}
+                            </td>
+                            <td className="p-4 font-mono text-muted-foreground">
+                              {t.targetLanguageCode}
+                            </td>
+                            <td className="p-4 text-muted-foreground">
+                              {t.level}
+                            </td>
+                            <td className="p-4 text-right font-mono">
+                              {t.lessonCount}
+                            </td>
+                            <td className="p-4 text-center">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                  t.isPublished
+                                    ? "bg-green-500/10 text-green-400"
+                                    : "bg-secondary text-muted-foreground"
+                                }`}
+                              >
+                                {t.isPublished ? "Published" : "Hidden"}
+                              </span>
+                            </td>
+                            <td className="p-4 text-muted-foreground">
+                              {new Date(t.createdAt).toLocaleDateString()}
+                            </td>
+                            <td className="p-4">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  disabled={languageBusy !== null}
+                                  onClick={() =>
+                                    toggleLanguageTemplatePublish(t.id, t.isPublished)
+                                  }
+                                  title={t.isPublished ? "Unpublish" : "Publish"}
+                                  className="p-1.5 rounded-lg hover:bg-primary/10 text-primary transition-colors disabled:opacity-40"
+                                >
+                                  {publishBusy ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : t.isPublished ? (
+                                    <EyeOff className="w-4 h-4" />
+                                  ) : (
+                                    <Eye className="w-4 h-4" />
+                                  )}
+                                </button>
+                                <button
+                                  disabled={languageBusy !== null}
+                                  onClick={() => testEnrollLanguageTemplate(t.id)}
+                                  title="Test enroll"
+                                  className="p-1.5 rounded-lg hover:bg-accent/10 text-accent transition-colors disabled:opacity-40"
+                                >
+                                  {testBusy ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <BookOpen className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

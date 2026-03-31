@@ -119,6 +119,7 @@ export interface UnseenQuestion {
 
 export interface LanguageCourse {
   id: string;
+  templateId?: string | null;
   userId: string;
   targetLanguageCode: string;
   level: string;

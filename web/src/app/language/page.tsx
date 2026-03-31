@@ -11,9 +11,19 @@ import type {
   LanguageVocabItem,
   LanguageAttemptState,
 } from "@/types";
-import { Loader2, Sparkles, Play, CircleCheck, CircleX } from "lucide-react";
+import { Loader2, Play, CircleCheck, CircleX } from "lucide-react";
 
-type Stage = "setup" | "lessons" | "flashcards" | "practice" | "result";
+type Stage = "catalog" | "lessons" | "flashcards" | "practice" | "result";
+
+type LanguageCourseTemplate = {
+  id: string;
+  title: string;
+  targetLanguageCode: string;
+  level: string;
+  lessonCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 type StartLessonResponse = {
   attempt: {
@@ -56,13 +66,21 @@ type AttemptResultResponse = {
   exercises: LanguageExercise[];
 };
 
-const LANGUAGE_OPTIONS: Array<{ label: string; code: string }> = [
-  { label: "Spanish", code: "es-ES" },
-  { label: "French", code: "fr-FR" },
-  { label: "German", code: "de-DE" },
-  { label: "Italian", code: "it-IT" },
-  { label: "Portuguese", code: "pt-PT" },
-];
+type CatalogResponse = {
+  templates: LanguageCourseTemplate[];
+  courses: LanguageCourse[];
+};
+
+type CourseDetailResponse = {
+  course: LanguageCourse;
+  lessons: LanguageLessonSummary[];
+};
+
+type EnrollResponse = {
+  enrolled: boolean;
+  course: LanguageCourse;
+  lessons: LanguageLessonSummary[];
+};
 
 function formatDuration(totalSec: number | null): string {
   if (!totalSec || totalSec <= 0) return "0s";
@@ -106,17 +124,18 @@ export default function LanguagePage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
-  const [stage, setStage] = useState<Stage>("setup");
+  const [stage, setStage] = useState<Stage>("catalog");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [startingLessonId, setStartingLessonId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
+  const [templates, setTemplates] = useState<LanguageCourseTemplate[]>([]);
+  const [courses, setCourses] = useState<LanguageCourse[]>([]);
+
   const [course, setCourse] = useState<LanguageCourse | null>(null);
   const [lessons, setLessons] = useState<LanguageLessonSummary[]>([]);
-
-  const [targetLanguageCode, setTargetLanguageCode] = useState(LANGUAGE_OPTIONS[0]?.code || "es-ES");
 
   const [activeLesson, setActiveLesson] = useState<StartLessonResponse["lesson"] | null>(null);
   const [attemptId, setAttemptId] = useState<string | null>(null);
@@ -133,8 +152,8 @@ export default function LanguagePage() {
 
   const [result, setResult] = useState<AttemptResultResponse | null>(null);
   const activeCourseTargetLang = useMemo(
-    () => result?.course.targetLanguageCode || course?.targetLanguageCode || targetLanguageCode,
-    [result, course, targetLanguageCode]
+    () => result?.course.targetLanguageCode || course?.targetLanguageCode || "es-ES",
+    [result, course]
   );
 
   useEffect(() => {
@@ -143,22 +162,15 @@ export default function LanguagePage() {
     }
   }, [authLoading, user, router]);
 
-  const refreshCourse = async () => {
+  const refreshCatalog = async () => {
     try {
       const { data } = await api.get("/language");
-      const nextCourse = (data.course || null) as LanguageCourse | null;
-      const nextLessons = (data.lessons || []) as LanguageLessonSummary[];
+      const payload = data as CatalogResponse;
 
-      setCourse(nextCourse);
-      setLessons(nextLessons);
-
-      if (nextCourse) {
-        setStage("lessons");
-      } else {
-        setStage("setup");
-      }
+      setTemplates((payload.templates || []) as LanguageCourseTemplate[]);
+      setCourses((payload.courses || []) as LanguageCourse[]);
     } catch {
-      setError("Failed to load language course");
+      setError("Failed to load language courses");
     } finally {
       setLoading(false);
     }
@@ -166,7 +178,7 @@ export default function LanguagePage() {
 
   useEffect(() => {
     if (!user) return;
-    void refreshCourse();
+    void refreshCatalog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -178,30 +190,83 @@ export default function LanguagePage() {
     return () => window.clearTimeout(timer);
   };
 
-  const generateCourse = async () => {
-    setBusy("generateCourse");
+  const refreshSelectedCourse = async () => {
+    if (!course) return;
+
+    try {
+      const { data } = await api.get(`/language/courses/${course.id}`);
+      const payload = data as CourseDetailResponse;
+      setCourse(payload.course);
+      setLessons((payload.lessons || []) as LanguageLessonSummary[]);
+    } catch {
+      setError("Failed to refresh course");
+    }
+  };
+
+  const loadCourse = async (courseId: string) => {
+    setBusy(`loadCourse:${courseId}`);
+    setError("");
+    setNotice("");
+    setStartingLessonId(null);
+
+    try {
+      const { data } = await api.get(`/language/courses/${courseId}`);
+      const payload = data as CourseDetailResponse;
+
+      setCourse(payload.course);
+      setLessons((payload.lessons || []) as LanguageLessonSummary[]);
+      setStage("lessons");
+    } catch {
+      setError("Failed to load course");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const enrollTemplate = async (templateId: string) => {
+    setBusy(`enroll:${templateId}`);
     setError("");
     setStartingLessonId(null);
 
-    const stopTimer = startLongNotice("Generating your plan… it’ll be ready shortly.");
+    const stopTimer = startLongNotice("Enrolling… it’ll be ready shortly.");
 
     try {
-      const { data } = await api.post("/language/course/generate", {
-        targetLanguageCode,
-        level: "A1",
-        lessonCount: 5,
+      const { data } = await api.post("/language/enroll", {
+        templateId,
       });
+      const payload = data as EnrollResponse;
 
-      setNotice(data.fallback ? "Fallback plan created." : "Plan created.");
-      setCourse(data.course as LanguageCourse);
-      setLessons((data.lessons || []) as LanguageLessonSummary[]);
+      setCourse(payload.course);
+      setLessons((payload.lessons || []) as LanguageLessonSummary[]);
       setStage("lessons");
+      setNotice("");
+
+      await refreshCatalog();
     } catch {
-      setError("Unable to generate a course plan right now. Please retry.");
+      setError("Unable to enroll right now. Please retry.");
     } finally {
       stopTimer();
       setBusy(null);
     }
+  };
+
+  const backToCatalog = async () => {
+    setStage("catalog");
+    setCourse(null);
+    setLessons([]);
+    setActiveLesson(null);
+    setAttemptId(null);
+    setLessonVocab([]);
+    setLessonExercises([]);
+    setCardIndex(0);
+    setExerciseIndex(0);
+    setAnswers({});
+    setResult(null);
+    setNotice("");
+    setError("");
+    setStartingLessonId(null);
+
+    await refreshCatalog();
   };
 
   const startLesson = async (lessonId: string) => {
@@ -258,7 +323,8 @@ export default function LanguagePage() {
       setStage("result");
 
       // Refresh lesson statuses (unlock next lesson)
-      await refreshCourse();
+      await refreshSelectedCourse();
+      await refreshCatalog();
       setNotice("");
     } catch {
       setError("Unable to submit answers. Please retry.");
@@ -281,7 +347,7 @@ export default function LanguagePage() {
     setStartingLessonId(null);
     setStage("lessons");
 
-    await refreshCourse();
+    await refreshSelectedCourse();
   };
 
   const activeCard = lessonVocab[cardIndex] || null;
@@ -322,55 +388,120 @@ export default function LanguagePage() {
           </div>
         )}
 
-        {stage === "setup" && (
-          <div className="animate-fade-in-up delay-200 glow-card rounded-2xl p-6 space-y-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold">Create your plan</h2>
-                <p className="text-muted-foreground text-sm mt-1">
-                  AI will generate a short beginner plan and vocabulary.
-                </p>
-              </div>
-              <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                <Sparkles className="w-4 h-4" />
-                AI
-              </div>
+        {stage === "catalog" && (
+          <div className="animate-fade-in-up delay-200 glow-card rounded-2xl overflow-hidden">
+            <div className="p-6 border-b border-border/60">
+              <h2 className="text-lg font-semibold">Choose a language</h2>
+              <p className="text-muted-foreground text-sm mt-1">
+                Courses are created and published by admins.
+              </p>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm text-muted-foreground">Target language</label>
-              <select
-                value={targetLanguageCode}
-                onChange={(e) => setTargetLanguageCode(e.target.value)}
-                className="w-full rounded-xl bg-secondary border border-border px-4 py-3 text-sm"
-                disabled={busy !== null}
-              >
-                {LANGUAGE_OPTIONS.map((opt) => (
-                  <option key={opt.code} value={opt.code}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <div className="p-6 space-y-8">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold">Available languages</div>
+                  <div className="text-xs text-muted-foreground">
+                    {templates.length} course{templates.length === 1 ? "" : "s"}
+                  </div>
+                </div>
 
-            <button
-              type="button"
-              onClick={generateCourse}
-              disabled={busy !== null}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-primary-foreground font-semibold hover:brightness-110 transition-all disabled:opacity-60"
-            >
-              {busy === "generateCourse" ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Generating…
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-5 h-5" />
-                  Generate plan
-                </>
-              )}
-            </button>
+                {templates.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-10">
+                    No published language courses yet.
+                  </div>
+                ) : (
+                  templates.map((tpl) => {
+                    const alreadyEnrolled = courses.some((c) => c.templateId === tpl.id);
+                    const busyKey = `enroll:${tpl.id}`;
+
+                    return (
+                      <div
+                        key={tpl.id}
+                        className="rounded-2xl border border-border/60 bg-background/20 p-4 flex items-start justify-between gap-4"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-semibold text-foreground truncate">{tpl.title}</div>
+                          <div className="text-sm text-muted-foreground mt-1">
+                            {tpl.targetLanguageCode} • {tpl.level} • {tpl.lessonCount} lessons
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => enrollTemplate(tpl.id)}
+                          disabled={busy !== null || alreadyEnrolled}
+                          className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:brightness-110 transition-all disabled:opacity-60"
+                        >
+                          {busy === busyKey ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Enrolling…
+                            </>
+                          ) : alreadyEnrolled ? (
+                            "Enrolled"
+                          ) : (
+                            "Enroll"
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold">My courses</div>
+                  <div className="text-xs text-muted-foreground">
+                    {courses.length} enrolled
+                  </div>
+                </div>
+
+                {courses.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-10">
+                    You haven’t enrolled in any course yet.
+                  </div>
+                ) : (
+                  courses.map((c) => {
+                    const busyKey = `loadCourse:${c.id}`;
+
+                    return (
+                      <div
+                        key={c.id}
+                        className="rounded-2xl border border-border/60 bg-background/20 p-4 flex items-start justify-between gap-4"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-semibold text-foreground truncate">{c.title}</div>
+                          <div className="text-sm text-muted-foreground mt-1">
+                            {c.targetLanguageCode} • {c.level}
+                          </div>
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Status: {c.status}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => loadCourse(c.id)}
+                          disabled={busy !== null}
+                          className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary text-secondary-foreground text-sm font-semibold hover:brightness-110 transition-all disabled:opacity-60"
+                        >
+                          {busy === busyKey ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Loading…
+                            </>
+                          ) : (
+                            "Open"
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -386,17 +517,11 @@ export default function LanguagePage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setStage("setup");
-                    setCourse(null);
-                    setLessons([]);
-                    setError("");
-                    setNotice("");
-                  }}
+                  onClick={() => void backToCatalog()}
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                   disabled={busy !== null}
                 >
-                  New plan
+                  Back to languages
                 </button>
               </div>
             </div>
