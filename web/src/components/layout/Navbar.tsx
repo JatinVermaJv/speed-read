@@ -49,6 +49,13 @@ export function Navbar() {
             Unseen
           </Link>
 
+          <Link
+            href="/language"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Language
+          </Link>
+
           {isLoading ? (
             <div className="w-20 h-9 rounded-lg bg-secondary animate-pulse" />
           ) : user ? (
@@ -122,6 +129,13 @@ export function Navbar() {
             onClick={() => setMobileOpen(false)}
           >
             Unseen
+          </Link>
+          <Link
+            href="/language"
+            className="block text-muted-foreground hover:text-foreground"
+            onClick={() => setMobileOpen(false)}
+          >
+            Language
           </Link>
           {user ? (
             <>

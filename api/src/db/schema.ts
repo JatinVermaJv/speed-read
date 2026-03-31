@@ -151,10 +151,115 @@ export const aiGenerationUsage = pgTable("ai_generation_usage", {
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  feature: varchar("feature", { length: 40 }).notNull().default("unseen"),
   theme: varchar("theme", { length: 200 }).notNull(),
   keywords: text("keywords"),
   model: varchar("model", { length: 120 }).notNull(),
   status: varchar("status", { length: 20 }).notNull().default("success"),
   errorMessage: text("error_message"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── Language Learning (Duolingo-MVP) ───────────────────────────────────────
+
+export const languageCourses = pgTable("language_courses", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  targetLanguageCode: varchar("target_language_code", { length: 20 }).notNull(),
+  level: varchar("level", { length: 20 }).notNull().default("A1"),
+  title: varchar("title", { length: 255 }).notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const languageLessons = pgTable("language_lessons", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  courseId: uuid("course_id")
+    .notNull()
+    .references(() => languageCourses.id, { onDelete: "cascade" }),
+  orderIndex: integer("order_index").notNull().default(0),
+  title: varchar("title", { length: 255 }).notNull(),
+  objective: text("objective").notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("locked"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const languageVocabItems = pgTable("language_vocab_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  lessonId: uuid("lesson_id")
+    .notNull()
+    .references(() => languageLessons.id, { onDelete: "cascade" }),
+  orderIndex: integer("order_index").notNull().default(0),
+  term: varchar("term", { length: 255 }).notNull(),
+  translation: varchar("translation", { length: 255 }).notNull(),
+  partOfSpeech: varchar("part_of_speech", { length: 60 }),
+  targetExample: text("target_example"),
+  nativeExample: text("native_example"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const languageExercises = pgTable("language_exercises", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  lessonId: uuid("lesson_id")
+    .notNull()
+    .references(() => languageLessons.id, { onDelete: "cascade" }),
+  type: varchar("type", { length: 30 }).notNull(),
+  orderIndex: integer("order_index").notNull().default(0),
+  prompt: text("prompt").notNull(),
+  vocabItemId: uuid("vocab_item_id")
+    .notNull()
+    .references(() => languageVocabItems.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const languageExerciseOptions = pgTable("language_exercise_options", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  exerciseId: uuid("exercise_id")
+    .notNull()
+    .references(() => languageExercises.id, { onDelete: "cascade" }),
+  vocabItemId: uuid("vocab_item_id")
+    .notNull()
+    .references(() => languageVocabItems.id, { onDelete: "cascade" }),
+  orderIndex: integer("order_index").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const languageAttempts = pgTable("language_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  lessonId: uuid("lesson_id")
+    .notNull()
+    .references(() => languageLessons.id, { onDelete: "cascade" }),
+  attemptNumber: integer("attempt_number").notNull().default(1),
+  status: varchar("status", { length: 30 }).notNull().default("in_progress"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  submittedAt: timestamp("submitted_at"),
+  scorePercent: integer("score_percent"),
+  totalQuestions: integer("total_questions"),
+  correctAnswers: integer("correct_answers"),
+  durationSec: integer("duration_sec"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const languageAttemptAnswers = pgTable("language_attempt_answers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  attemptId: uuid("attempt_id")
+    .notNull()
+    .references(() => languageAttempts.id, { onDelete: "cascade" }),
+  exerciseId: uuid("exercise_id")
+    .notNull()
+    .references(() => languageExercises.id, { onDelete: "cascade" }),
+  selectedOptionId: uuid("selected_option_id").references(() => languageExerciseOptions.id, {
+    onDelete: "set null",
+  }),
+  typedText: text("typed_text"),
+  isCorrect: boolean("is_correct").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

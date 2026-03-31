@@ -114,3 +114,88 @@ export interface UnseenQuestion {
   isCorrect?: boolean;
   options: UnseenQuestionOption[];
 }
+
+// ─── Language Learning (Duolingo-MVP) ───────────────────────────────────────
+
+export interface LanguageCourse {
+  id: string;
+  userId: string;
+  targetLanguageCode: string;
+  level: string;
+  title: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LanguageLessonSummary {
+  id: string;
+  courseId: string;
+  orderIndex: number;
+  title: string;
+  objective: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LanguageVocabItem {
+  id: string;
+  orderIndex: number;
+  term: string;
+  translation: string;
+  partOfSpeech: string | null;
+  targetExample: string | null;
+  nativeExample: string | null;
+}
+
+export interface LanguageExerciseOption {
+  id: string;
+  text: string;
+  orderIndex: number;
+  isCorrect?: boolean;
+}
+
+export interface LanguageExercise {
+  id: string;
+  type: string;
+  orderIndex: number;
+  prompt: string;
+  options: LanguageExerciseOption[];
+  selectedOptionId?: string | null;
+  typedText?: string | null;
+  correctOptionId?: string | null;
+  correctTerm?: string;
+  correctTranslation?: string;
+  isCorrect?: boolean;
+}
+
+export interface LanguageAttemptState {
+  id: string;
+  status: string;
+  attemptNumber: number;
+  startedAt: string;
+  submittedAt: string | null;
+  scorePercent: number | null;
+  totalQuestions: number | null;
+  correctAnswers: number | null;
+  durationSec: number | null;
+}
+
+export interface LanguageAttemptLog {
+  id: string;
+  lessonId: string;
+  attemptNumber: number;
+  status: string;
+  scorePercent: number | null;
+  totalQuestions: number | null;
+  correctAnswers: number | null;
+  durationSec: number | null;
+  startedAt: string;
+  submittedAt: string | null;
+  createdAt: string;
+  lessonTitle: string;
+  courseTitle: string;
+  targetLanguageCode: string;
+  level: string;
+}
