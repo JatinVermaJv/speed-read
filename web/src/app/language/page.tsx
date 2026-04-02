@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import {
+  getLanguageVoiceKey,
+  loadTtsVoicePrefs,
+  speakTextWithTts,
+  type TtsVoicePreference,
+} from "@/lib/tts";
 import type {
   LanguageCourse,
   LanguageExercise,
@@ -90,39 +96,11 @@ function formatDuration(totalSec: number | null): string {
   return `${mins}m ${secs}s`;
 }
 
-function speak(text: string, lang: string) {
-  if (typeof window === "undefined") return;
-  const synth = window.speechSynthesis;
-  if (!synth) return;
-
-  try {
-    synth.cancel();
-
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = lang;
-
-    const voices = synth.getVoices();
-    const normalizedLang = lang.trim().toLowerCase();
-    const baseLang = normalizedLang.split("-")[0];
-
-    const voice =
-      voices.find((v) => v.lang?.toLowerCase() === normalizedLang) ||
-      voices.find((v) => v.lang?.toLowerCase().startsWith(`${baseLang}-`)) ||
-      null;
-
-    if (voice) {
-      utter.voice = voice;
-    }
-
-    synth.speak(utter);
-  } catch {
-    // no-op
-  }
-}
-
 export default function LanguagePage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
+
+  const [ttsVoicePrefs, setTtsVoicePrefs] = useState<Record<string, TtsVoicePreference>>({});
 
   const [stage, setStage] = useState<Stage>("catalog");
   const [loading, setLoading] = useState(true);
@@ -154,6 +132,25 @@ export default function LanguagePage() {
   const activeCourseTargetLang = useMemo(
     () => result?.course.targetLanguageCode || course?.targetLanguageCode || "es-ES",
     [result, course]
+  );
+
+  useEffect(() => {
+    setTtsVoicePrefs(loadTtsVoicePrefs());
+  }, []);
+
+  const activeTtsVoicePref = useMemo(() => {
+    const key = getLanguageVoiceKey(activeCourseTargetLang);
+    return key ? ttsVoicePrefs[key] : null;
+  }, [activeCourseTargetLang, ttsVoicePrefs]);
+
+  const speakActive = useCallback(
+    (text: string) =>
+      speakTextWithTts({
+        text,
+        languageCode: activeCourseTargetLang,
+        preferredVoice: activeTtsVoicePref,
+      }),
+    [activeCourseTargetLang, activeTtsVoicePref]
   );
 
   useEffect(() => {
@@ -635,7 +632,7 @@ export default function LanguagePage() {
                     <div className="pt-2 flex items-center justify-center gap-3">
                       <button
                         type="button"
-                        onClick={() => speak(activeCard.term, activeCourseTargetLang)}
+                        onClick={() => speakActive(activeCard.term)}
                         className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary text-secondary-foreground text-sm font-semibold hover:brightness-110 transition-all"
                       >
                         <Play className="w-4 h-4" />
@@ -758,7 +755,7 @@ export default function LanguagePage() {
 
                       <button
                         type="button"
-                        onClick={() => speak(currentExercise.prompt, activeCourseTargetLang)}
+                        onClick={() => speakActive(currentExercise.prompt)}
                         className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary text-secondary-foreground text-sm font-semibold hover:brightness-110 transition-all"
                       >
                         <Play className="w-4 h-4" />
@@ -947,7 +944,7 @@ export default function LanguagePage() {
                         <div className="mt-4">
                           <button
                             type="button"
-                            onClick={() => speak(ex.correctTerm || ex.prompt, activeCourseTargetLang)}
+                            onClick={() => speakActive(ex.correctTerm || ex.prompt)}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary text-secondary-foreground text-sm font-semibold hover:brightness-110 transition-all"
                           >
                             <Play className="w-4 h-4" />

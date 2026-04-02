@@ -1,9 +1,18 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
+import {
+  getLanguageVoiceKey,
+  isBrowserTtsSupported,
+  listSpeechSynthesisVoices,
+  loadTtsVoicePrefs,
+  saveTtsVoicePrefs,
+  speakTextWithTts,
+  type TtsVoicePreference,
+} from "@/lib/tts";
 import {
   Users,
   BookOpen,
@@ -114,6 +123,24 @@ function createDefaultQuestions(): UnseenQuestionDraft[] {
   }));
 }
 
+function defaultLanguageVoiceSample(languageCode: string): string {
+  const base = getLanguageVoiceKey(languageCode);
+
+  if (base === "es") return "Hola, ¿cómo estás?";
+  if (base === "fr") return "Bonjour ! Comment ça va ?";
+  if (base === "de") return "Hallo! Wie geht's?";
+  if (base === "it") return "Ciao! Come stai?";
+  if (base === "pt") return "Olá! Tudo bem?";
+  if (base === "nl") return "Hallo! Hoe gaat het?";
+  if (base === "ja") return "こんにちは。元気ですか？";
+  if (base === "ko") return "안녕하세요. 잘 지내요?";
+  if (base === "zh") return "你好，你怎么样？";
+  if (base === "ar") return "مرحبًا، كيف حالك؟";
+  if (base === "hi") return "नमस्ते, आप कैसे हैं?";
+
+  return "Hello! This is a voice sample.";
+}
+
 export default function AdminPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
@@ -153,6 +180,15 @@ export default function AdminPage() {
   const [lTargetLanguageCode, setLTargetLanguageCode] = useState("es-ES");
   const [lLevel, setLLevel] = useState("A1");
   const [lLessonCount, setLLessonCount] = useState(5);
+
+  // Browser TTS voice prefs (stored locally per language)
+  const [ttsVoices, setTtsVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [ttsVoicePrefs, setTtsVoicePrefs] = useState<Record<string, TtsVoicePreference>>({});
+  const [ttsSampleText, setTtsSampleText] = useState("");
+  const ttsLangKey = useMemo(
+    () => getLanguageVoiceKey(lTargetLanguageCode),
+    [lTargetLanguageCode]
+  );
 
   // Confirm modal state
   const [confirm, setConfirm] = useState<{
@@ -194,6 +230,31 @@ export default function AdminPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    setTtsVoicePrefs(loadTtsVoicePrefs());
+  }, []);
+
+  useEffect(() => {
+    if (!isBrowserTtsSupported()) return;
+
+    const synth = window.speechSynthesis;
+    const load = () => setTtsVoices(listSpeechSynthesisVoices());
+
+    load();
+    const handler = () => load();
+    synth.onvoiceschanged = handler;
+
+    return () => {
+      if (synth.onvoiceschanged === handler) {
+        synth.onvoiceschanged = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setTtsSampleText(defaultLanguageVoiceSample(lTargetLanguageCode));
+  }, [ttsLangKey, lTargetLanguageCode]);
 
   // ── User actions ──────────────────────────────────────────────
 
@@ -358,6 +419,63 @@ export default function AdminPage() {
     } finally {
       setLanguageBusy(null);
     }
+  };
+
+  const filteredTtsVoices = useMemo(() => {
+    if (ttsVoices.length === 0) return [] as SpeechSynthesisVoice[];
+    if (!ttsLangKey) return ttsVoices;
+
+    const base = ttsLangKey.toLowerCase();
+    const matches = ttsVoices.filter((voice) => {
+      const vLang = (voice.lang || "").toLowerCase();
+      return vLang === base || vLang.startsWith(`${base}-`);
+    });
+
+    return matches.length > 0 ? matches : ttsVoices;
+  }, [ttsVoices, ttsLangKey]);
+
+  const selectedTtsPref = ttsLangKey ? ttsVoicePrefs[ttsLangKey] : undefined;
+
+  const updateTtsVoicePref = (voiceURI: string) => {
+    if (!ttsLangKey) return;
+
+    if (voiceURI === "auto") {
+      setTtsVoicePrefs((prev) => {
+        const next = { ...prev };
+        delete next[ttsLangKey];
+        saveTtsVoicePrefs(next);
+        return next;
+      });
+      return;
+    }
+
+    const voice = ttsVoices.find((v) => v.voiceURI === voiceURI);
+    if (!voice) return;
+
+    const pref: TtsVoicePreference = {
+      voiceURI: voice.voiceURI,
+      name: voice.name,
+      lang: voice.lang,
+    };
+
+    setTtsVoicePrefs((prev) => {
+      const next = { ...prev, [ttsLangKey]: pref };
+      saveTtsVoicePrefs(next);
+      return next;
+    });
+  };
+
+  const playTtsSample = () => {
+    if (!isBrowserTtsSupported()) {
+      setError("Text-to-speech is not supported in this browser.");
+      return;
+    }
+
+    speakTextWithTts({
+      text: ttsSampleText,
+      languageCode: lTargetLanguageCode,
+      preferredVoice: selectedTtsPref || null,
+    });
   };
 
   const toggleLanguageTemplatePublish = async (
@@ -1217,6 +1335,41 @@ export default function AdminPage() {
                   placeholder="Lesson count"
                   className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <select
+                  value={selectedTtsPref?.voiceURI || "auto"}
+                  onChange={(e) => updateTtsVoicePref(e.target.value)}
+                  disabled={!isBrowserTtsSupported()}
+                  className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-50"
+                >
+                  <option value="auto">Auto voice (by language)</option>
+                  {filteredTtsVoices.map((voice) => (
+                    <option
+                      key={`${voice.voiceURI}|${voice.lang}|${voice.name}`}
+                      value={voice.voiceURI}
+                    >
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  value={ttsSampleText}
+                  onChange={(e) => setTtsSampleText(e.target.value)}
+                  placeholder="Sample text for voice preview"
+                  className="w-full p-3 rounded-xl bg-card/80 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                />
+
+                <button
+                  type="button"
+                  onClick={playTtsSample}
+                  disabled={!isBrowserTtsSupported() || ttsSampleText.trim().length === 0}
+                  className="w-full px-6 py-2 rounded-xl bg-secondary text-secondary-foreground font-semibold text-sm hover:brightness-110 transition-all disabled:opacity-40"
+                >
+                  Play sample
+                </button>
               </div>
 
               <div className="flex items-center justify-between">
