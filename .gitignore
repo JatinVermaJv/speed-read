@@ -14,9 +14,6 @@ web/out/
 dist/
 build/
 
-# drizzle
-api/drizzle/
-
 # misc
 .DS_Store
 *.log
@@ -24,3 +21,9 @@ api/drizzle/
 
 discription.md
 plan.md
+
+production.md
+
+Internals.md
+Project.md
+TODOS.md
