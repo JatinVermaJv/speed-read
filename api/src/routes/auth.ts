@@ -174,6 +174,15 @@ const googleSchema = z.object({
 auth.post("/google", zValidator("json", googleSchema), async (c) => {
   const { credential } = c.req.valid("json");
 
+  const expectedAudience = (process.env.GOOGLE_CLIENT_ID ?? "").trim();
+  if (!expectedAudience) {
+    console.error("GOOGLE_CLIENT_ID is not set; refusing Google OAuth login");
+    return c.json(
+      { error: "not_configured", message: "Google OAuth is not configured" },
+      503
+    );
+  }
+
   // Verify Google ID token
   let googleUser: GoogleUserInfo;
   try {
@@ -187,6 +196,25 @@ auth.post("/google", zValidator("json", googleSchema), async (c) => {
       { error: "unauthorized", message: "Invalid Google credential" },
       401
     );
+  }
+
+  if (!googleUser.aud || googleUser.aud !== expectedAudience) {
+    return c.json(
+      { error: "unauthorized", message: "Invalid Google credential" },
+      401
+    );
+  }
+
+  if (googleUser.email_verified != null) {
+    const isVerified =
+      googleUser.email_verified === true || googleUser.email_verified === "true";
+
+    if (!isVerified) {
+      return c.json(
+        { error: "unauthorized", message: "Google email is not verified" },
+        401
+      );
+    }
   }
 
   // Upsert user

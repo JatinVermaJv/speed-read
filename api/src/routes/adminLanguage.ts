@@ -167,6 +167,8 @@ adminLanguageRouter.post(
       const attemptedModels =
         error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const isRateLimited =
+        error instanceof OpenRouterGenerationError && error.lastStatus === 429;
 
       logError(traceId, "templates.generate.plan.failed", {
         attemptedModels,
@@ -185,13 +187,20 @@ adminLanguageRouter.post(
         metadata: JSON.stringify({ traceId }),
       });
 
+      if (isRateLimited && error.retryAfterSeconds) {
+        c.header("Retry-After", String(error.retryAfterSeconds));
+      }
+
       return c.json(
         {
-          error: "generation_failed",
-          message: "Failed to generate course plan. Please retry.",
+          error: isRateLimited ? "rate_limited" : "generation_failed",
+          message: isRateLimited
+            ? "OpenRouter is temporarily rate-limited upstream. Please retry shortly (or configure additional models / your own key)."
+            : "Failed to generate course plan. Please retry.",
           traceId,
+          retryAfterSeconds: isRateLimited ? error.retryAfterSeconds ?? null : null,
         },
-        503
+        isRateLimited ? 429 : 503
       );
     }
 
@@ -245,6 +254,8 @@ adminLanguageRouter.post(
       const attemptedModels =
         error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const isRateLimited =
+        error instanceof OpenRouterGenerationError && error.lastStatus === 429;
 
       logError(traceId, "templates.generate.vocab.failed", {
         attemptedModels,
@@ -263,13 +274,20 @@ adminLanguageRouter.post(
         metadata: JSON.stringify({ traceId }),
       });
 
+      if (isRateLimited && error.retryAfterSeconds) {
+        c.header("Retry-After", String(error.retryAfterSeconds));
+      }
+
       return c.json(
         {
-          error: "generation_failed",
-          message: "Failed to generate lesson vocabulary. Please retry.",
+          error: isRateLimited ? "rate_limited" : "generation_failed",
+          message: isRateLimited
+            ? "OpenRouter is temporarily rate-limited upstream. Please retry shortly (or configure additional models / your own key)."
+            : "Failed to generate lesson vocabulary. Please retry.",
           traceId,
+          retryAfterSeconds: isRateLimited ? error.retryAfterSeconds ?? null : null,
         },
-        503
+        isRateLimited ? 429 : 503
       );
     }
 

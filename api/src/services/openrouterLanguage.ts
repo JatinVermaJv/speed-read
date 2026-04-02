@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OpenRouterGenerationError } from "./openrouter";
+import { OpenRouterGenerationError, OpenRouterHttpError } from "./openrouter";
 
 const OPENROUTER_URL =
   process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1/chat/completions";
@@ -77,20 +77,51 @@ function isAbortError(error: unknown): boolean {
 }
 
 function parseModelsFromEnv(): string[] {
-  const rawModels = process.env.OPENROUTER_MODELS;
-  const rawModel = process.env.OPENROUTER_MODEL;
-  const raw = rawModels ?? rawModel;
+  const rawModels = (process.env.OPENROUTER_MODELS ?? "").trim();
+  const rawModel = (process.env.OPENROUTER_MODEL ?? "").trim();
 
-  if (!raw) {
-    return DEFAULT_FREE_MODELS;
+  const parse = (raw: string) =>
+    raw
+      .split(",")
+      .map((model) => model.trim())
+      .filter((model) => model.length > 0);
+
+  const uniq = (models: string[]) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const model of models) {
+      if (seen.has(model)) continue;
+      seen.add(model);
+      out.push(model);
+    }
+    return out;
+  };
+
+  // OPENROUTER_MODELS is treated as an explicit ordered list.
+  if (rawModels) {
+    const parsed = parse(rawModels);
+    return parsed.length > 0 ? parsed : DEFAULT_FREE_MODELS;
   }
 
-  const parsed = raw
-    .split(",")
-    .map((model) => model.trim())
-    .filter((model) => model.length > 0);
+  // OPENROUTER_MODEL is treated as a preferred single model; if set, we still
+  // fall back to the built-in free model list to reduce hard failures.
+  if (rawModel) {
+    const parsed = parse(rawModel);
+    if (parsed.length === 0) return DEFAULT_FREE_MODELS;
+    return uniq([...parsed, ...DEFAULT_FREE_MODELS]);
+  }
 
-  return parsed.length > 0 ? parsed : DEFAULT_FREE_MODELS;
+  return DEFAULT_FREE_MODELS;
+}
+
+function parseRetryAfterSeconds(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
 }
 
 function extractJsonContent(rawContent: string): unknown {
@@ -320,15 +351,23 @@ async function callOpenRouterJson<T>(
 
     if (!response.ok) {
       const errorText = await response.text();
+      const retryAfterSeconds = parseRetryAfterSeconds(
+        response.headers.get("retry-after")
+      );
       logError(traceId, "request.http_error", {
         model,
         status: response.status,
         openRouterRequestId,
+        retryAfterSeconds,
         errorSnippet: normalizeSnippet(errorText, 2000),
       });
-      throw new Error(
-        `OpenRouter ${response.status}${openRouterRequestId ? ` (${openRouterRequestId})` : ""}: ${errorText.slice(0, 280)}`
-      );
+
+      throw new OpenRouterHttpError({
+        status: response.status,
+        requestId: openRouterRequestId,
+        retryAfterSeconds,
+        bodySnippet: normalizeSnippet(errorText, 280),
+      });
     }
 
     type OpenRouterResponse = {
@@ -427,6 +466,8 @@ export async function generateLanguageCoursePlanWithOpenRouter(
   const models = parseModelsFromEnv();
   const attempted: string[] = [];
   let lastError = "Unknown generation error";
+  let lastStatus: number | undefined;
+  let retryAfterSeconds: number | undefined;
 
   for (const model of models) {
     attempted.push(model);
@@ -455,11 +496,20 @@ export async function generateLanguageCoursePlanWithOpenRouter(
     } catch (error) {
       const details = formatUnknownError(error);
       lastError = details.message;
+
+      if (error instanceof OpenRouterHttpError) {
+        lastStatus = error.status;
+        retryAfterSeconds = error.retryAfterSeconds;
+      }
       logError(traceId, "model.failed", { model, ...details });
     }
   }
 
-  throw new OpenRouterGenerationError(`OpenRouter generation failed: ${lastError}`, attempted);
+  throw new OpenRouterGenerationError(
+    `OpenRouter generation failed: ${lastError}`,
+    attempted,
+    { lastStatus, retryAfterSeconds }
+  );
 }
 
 export async function generateLessonVocabWithOpenRouter(
@@ -482,6 +532,8 @@ export async function generateLessonVocabWithOpenRouter(
   const models = parseModelsFromEnv();
   const attempted: string[] = [];
   let lastError = "Unknown generation error";
+  let lastStatus: number | undefined;
+  let retryAfterSeconds: number | undefined;
 
   for (const model of models) {
     attempted.push(model);
@@ -515,9 +567,18 @@ export async function generateLessonVocabWithOpenRouter(
     } catch (error) {
       const details = formatUnknownError(error);
       lastError = details.message;
+
+      if (error instanceof OpenRouterHttpError) {
+        lastStatus = error.status;
+        retryAfterSeconds = error.retryAfterSeconds;
+      }
       logError(traceId, "model.failed", { model, ...details });
     }
   }
 
-  throw new OpenRouterGenerationError(`OpenRouter generation failed: ${lastError}`, attempted);
+  throw new OpenRouterGenerationError(
+    `OpenRouter generation failed: ${lastError}`,
+    attempted,
+    { lastStatus, retryAfterSeconds }
+  );
 }

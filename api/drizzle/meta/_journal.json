@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1771513963031,
+      "tag": "0000_lame_daimon_hellstrom",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1774790881945,
+      "tag": "0001_eminent_wonder_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774967565832,
+      "tag": "0002_brief_black_bird",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1774972484235,
+      "tag": "0003_yielding_gertrude_yorkes",
+      "breakpoints": true
+    }
+  ]
+}

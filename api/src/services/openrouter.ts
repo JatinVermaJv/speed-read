@@ -124,11 +124,41 @@ export interface GeneratedUnseenPayload {
 
 export class OpenRouterGenerationError extends Error {
   attemptedModels: string[];
+  lastStatus?: number;
+  retryAfterSeconds?: number;
 
-  constructor(message: string, attemptedModels: string[]) {
+  constructor(
+    message: string,
+    attemptedModels: string[],
+    meta?: { lastStatus?: number; retryAfterSeconds?: number }
+  ) {
     super(message);
     this.name = "OpenRouterGenerationError";
     this.attemptedModels = attemptedModels;
+    this.lastStatus = meta?.lastStatus;
+    this.retryAfterSeconds = meta?.retryAfterSeconds;
+  }
+}
+
+export class OpenRouterHttpError extends Error {
+  status: number;
+  requestId: string | null;
+  retryAfterSeconds?: number;
+  bodySnippet: string;
+
+  constructor(params: {
+    status: number;
+    requestId: string | null;
+    retryAfterSeconds?: number;
+    bodySnippet: string;
+  }) {
+    const requestIdText = params.requestId ? ` (${params.requestId})` : "";
+    super(`OpenRouter ${params.status}${requestIdText}: ${params.bodySnippet}`);
+    this.name = "OpenRouterHttpError";
+    this.status = params.status;
+    this.requestId = params.requestId;
+    this.retryAfterSeconds = params.retryAfterSeconds;
+    this.bodySnippet = params.bodySnippet;
   }
 }
 
@@ -140,20 +170,51 @@ function wordCount(input: string): number {
 }
 
 function parseModelsFromEnv(): string[] {
-  const rawModels = process.env.OPENROUTER_MODELS;
-  const rawModel = process.env.OPENROUTER_MODEL;
-  const raw = rawModels ?? rawModel;
+  const rawModels = (process.env.OPENROUTER_MODELS ?? "").trim();
+  const rawModel = (process.env.OPENROUTER_MODEL ?? "").trim();
 
-  if (!raw) {
-    return DEFAULT_FREE_MODELS;
+  const parse = (raw: string) =>
+    raw
+      .split(",")
+      .map((model) => model.trim())
+      .filter((model) => model.length > 0);
+
+  const uniq = (models: string[]) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const model of models) {
+      if (seen.has(model)) continue;
+      seen.add(model);
+      out.push(model);
+    }
+    return out;
+  };
+
+  // OPENROUTER_MODELS is treated as an explicit ordered list.
+  if (rawModels) {
+    const parsed = parse(rawModels);
+    return parsed.length > 0 ? parsed : DEFAULT_FREE_MODELS;
   }
 
-  const parsed = raw
-    .split(",")
-    .map((model) => model.trim())
-    .filter((model) => model.length > 0);
+  // OPENROUTER_MODEL is treated as a preferred single model; if set, we still
+  // fall back to the built-in free model list to reduce hard failures.
+  if (rawModel) {
+    const parsed = parse(rawModel);
+    if (parsed.length === 0) return DEFAULT_FREE_MODELS;
+    return uniq([...parsed, ...DEFAULT_FREE_MODELS]);
+  }
 
-  return parsed.length > 0 ? parsed : DEFAULT_FREE_MODELS;
+  return DEFAULT_FREE_MODELS;
+}
+
+function parseRetryAfterSeconds(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
 }
 
 function extractJsonContent(rawContent: string): unknown {
@@ -280,6 +341,9 @@ async function callModel(
 
     if (!response.ok) {
       const errorText = await response.text();
+      const retryAfterSeconds = parseRetryAfterSeconds(
+        response.headers.get("retry-after")
+      );
       logError(traceId, "request.http_error", {
         model,
         status: response.status,
@@ -288,9 +352,12 @@ async function callModel(
         errorSnippet: normalizeSnippet(errorText, 2000),
       });
 
-      throw new Error(
-        `OpenRouter ${response.status}${openRouterRequestId ? ` (${openRouterRequestId})` : ""}: ${errorText.slice(0, 280)}`
-      );
+      throw new OpenRouterHttpError({
+        status: response.status,
+        requestId: openRouterRequestId,
+        retryAfterSeconds,
+        bodySnippet: normalizeSnippet(errorText, 280),
+      });
     }
 
     type OpenRouterResponse = {
@@ -431,6 +498,8 @@ export async function generateUnseenWithOpenRouter(
   logDebug(traceId, "config.models", { models, timeoutMs: GENERATION_TIMEOUT_MS });
   const attempted: string[] = [];
   let lastError = "Unknown generation error";
+  let lastStatus: number | undefined;
+  let retryAfterSeconds: number | undefined;
 
   for (const model of models) {
     attempted.push(model);
@@ -447,6 +516,11 @@ export async function generateUnseenWithOpenRouter(
       const details = formatUnknownError(error);
       lastError = details.message;
 
+      if (error instanceof OpenRouterHttpError) {
+        lastStatus = error.status;
+        retryAfterSeconds = error.retryAfterSeconds;
+      }
+
       logError(traceId, "model.failed", {
         model,
         ...details,
@@ -461,6 +535,7 @@ export async function generateUnseenWithOpenRouter(
 
   throw new OpenRouterGenerationError(
     `OpenRouter generation failed: ${lastError}`,
-    attempted
+    attempted,
+    { lastStatus, retryAfterSeconds }
   );
 }

@@ -9,5 +9,7 @@ export interface GoogleUserInfo {
   email: string;
   name: string;
   picture?: string;
-  email_verified?: boolean;
+  email_verified?: boolean | "true" | "false";
+  aud?: string;
+  iss?: string;
 }

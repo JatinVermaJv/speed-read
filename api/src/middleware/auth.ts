@@ -5,7 +5,37 @@ import { db } from "../db";
 import { users } from "../db/schema";
 import type { JwtPayload } from "../types/shared";
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
+function getJwtSecret(): string {
+  const secret = (process.env.JWT_SECRET ?? "").trim();
+
+  if (!secret) {
+    throw new Error(
+      "JWT_SECRET is required. Set it in the API environment (see api/.env.example)."
+    );
+  }
+
+  if (secret === "change-me-in-production") {
+    throw new Error(
+      'JWT_SECRET is set to the insecure placeholder "change-me-in-production".'
+    );
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    if (secret === "change-this-to-a-secure-random-string-in-production") {
+      throw new Error(
+        "JWT_SECRET is set to the example placeholder. Replace it with a secure random value for production."
+      );
+    }
+
+    if (secret.length < 32) {
+      throw new Error("JWT_SECRET must be at least 32 characters in production.");
+    }
+  }
+
+  return secret;
+}
+
+const JWT_SECRET = getJwtSecret();
 
 export function generateAccessToken(payload: JwtPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "15m" });
