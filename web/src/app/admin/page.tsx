@@ -389,6 +389,19 @@ export default function AdminPage() {
     }
   };
 
+  const deleteLanguageTemplate = async (templateId: string) => {
+    setLanguageBusy(`delete:${templateId}`);
+    try {
+      await api.delete(`/admin/language/templates/${templateId}`);
+      await refreshLanguageTemplates();
+    } catch {
+      setError("Failed to delete language template");
+    } finally {
+      setLanguageBusy(null);
+      setConfirm(null);
+    }
+  };
+
   // ── Guards ────────────────────────────────────────────────────
 
   if (authLoading || !user || !user.isAdmin) {
@@ -1277,6 +1290,7 @@ export default function AdminPage() {
                       {languageTemplates.map((t) => {
                         const publishBusy = languageBusy === `publish:${t.id}`;
                         const testBusy = languageBusy === `test:${t.id}`;
+                        const deleteBusy = languageBusy === `delete:${t.id}`;
 
                         return (
                           <tr
@@ -1337,6 +1351,23 @@ export default function AdminPage() {
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                   ) : (
                                     <BookOpen className="w-4 h-4" />
+                                  )}
+                                </button>
+                                <button
+                                  disabled={languageBusy !== null}
+                                  onClick={() =>
+                                    setConfirm({
+                                      message: `Delete language template "${t.title}" (${t.targetLanguageCode} ${t.level})? This cannot be undone.`,
+                                      onConfirm: () => deleteLanguageTemplate(t.id),
+                                    })
+                                  }
+                                  title="Delete template"
+                                  className="p-1.5 rounded-lg hover:bg-destructive/10 text-destructive transition-colors disabled:opacity-40"
+                                >
+                                  {deleteBusy ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
                                   )}
                                 </button>
                               </div>
