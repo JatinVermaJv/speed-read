@@ -33,6 +33,49 @@ function makeTraceId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function logPrefix(traceId?: string) {
+  return traceId ? `[admin:language:${traceId}]` : "[admin:language]";
+}
+
+function logInfo(
+  traceId: string | undefined,
+  message: string,
+  meta?: Record<string, unknown>
+) {
+  if (meta) {
+    console.log(logPrefix(traceId), message, meta);
+    return;
+  }
+  console.log(logPrefix(traceId), message);
+}
+
+function logError(
+  traceId: string | undefined,
+  message: string,
+  meta?: Record<string, unknown>
+) {
+  if (meta) {
+    console.error(logPrefix(traceId), message, meta);
+    return;
+  }
+  console.error(logPrefix(traceId), message);
+}
+
+function formatUnknownError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return {
+    name: typeof error,
+    message: String(error),
+  };
+}
+
 function sanitizeText(input: string): string {
   return input.replace(/<[^>]*>/g, "").trim();
 }
@@ -83,15 +126,27 @@ adminLanguageRouter.post(
     const traceId = makeTraceId();
     const startedAt = Date.now();
 
+    const targetLanguageCode = sanitizeText(body.targetLanguageCode);
+    const level = sanitizeText(body.level);
+    const lessonCount = body.lessonCount;
+
+    logInfo(traceId, "templates.generate.start", {
+      userId,
+      targetLanguageCode,
+      level,
+      lessonCount,
+    });
+
     let planModel = "";
     let courseTitle = "";
     let lessons: Array<{ title: string; objective: string }> = [];
 
+    const planStartedAt = Date.now();
     try {
       const generatedPlan = await generateLanguageCoursePlanWithOpenRouter({
-        targetLanguageCode: body.targetLanguageCode,
-        level: body.level,
-        lessonCount: body.lessonCount,
+        targetLanguageCode,
+        level,
+        lessonCount,
         traceId,
       });
 
@@ -101,16 +156,29 @@ adminLanguageRouter.post(
         title: sanitizeText(l.title),
         objective: sanitizeText(l.objective),
       }));
+
+      logInfo(traceId, "templates.generate.plan.success", {
+        model: planModel,
+        courseTitle,
+        lessons: lessons.length,
+        durationMs: Date.now() - planStartedAt,
+      });
     } catch (error) {
       const attemptedModels =
         error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
       const errorMessage = error instanceof Error ? error.message : String(error);
 
+      logError(traceId, "templates.generate.plan.failed", {
+        attemptedModels,
+        error: formatUnknownError(error),
+        durationMs: Date.now() - planStartedAt,
+      });
+
       await db.insert(aiGenerationUsage).values({
         userId,
         feature: "language_course_template_plan",
         theme: "language_course_template_plan",
-        keywords: `${body.targetLanguageCode}|${body.level}|${body.lessonCount}`,
+        keywords: `${targetLanguageCode}|${level}|${lessonCount}`,
         model: attemptedModels[0] || "none",
         status: "failed",
         errorMessage,
@@ -121,6 +189,7 @@ adminLanguageRouter.post(
         {
           error: "generation_failed",
           message: "Failed to generate course plan. Please retry.",
+          traceId,
         },
         503
       );
@@ -134,11 +203,20 @@ adminLanguageRouter.post(
       nativeExample?: string;
     }> }> = [];
 
+    const vocabStartedAt = Date.now();
     try {
-      for (const lesson of lessons) {
+      for (const [idx, lesson] of lessons.entries()) {
+        const lessonStartedAt = Date.now();
+
+        logInfo(traceId, "templates.generate.vocab.lesson.start", {
+          lessonIndex: idx + 1,
+          lessonTitle: lesson.title,
+          vocabCount: VOCAB_COUNT_PER_LESSON,
+        });
+
         const generatedVocab = await generateLessonVocabWithOpenRouter({
-          targetLanguageCode: body.targetLanguageCode,
-          level: body.level,
+          targetLanguageCode,
+          level,
           lessonTitle: lesson.title,
           lessonObjective: lesson.objective,
           vocabCount: VOCAB_COUNT_PER_LESSON,
@@ -149,17 +227,36 @@ adminLanguageRouter.post(
           model: generatedVocab.model,
           vocab: generatedVocab.vocab,
         });
+
+        logInfo(traceId, "templates.generate.vocab.lesson.success", {
+          lessonIndex: idx + 1,
+          model: generatedVocab.model,
+          vocabItems: generatedVocab.vocab.length,
+          durationMs: Date.now() - lessonStartedAt,
+        });
       }
+
+      logInfo(traceId, "templates.generate.vocab.success", {
+        lessons: lessons.length,
+        vocabItemsPerLesson: VOCAB_COUNT_PER_LESSON,
+        durationMs: Date.now() - vocabStartedAt,
+      });
     } catch (error) {
       const attemptedModels =
         error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
       const errorMessage = error instanceof Error ? error.message : String(error);
 
+      logError(traceId, "templates.generate.vocab.failed", {
+        attemptedModels,
+        error: formatUnknownError(error),
+        durationMs: Date.now() - vocabStartedAt,
+      });
+
       await db.insert(aiGenerationUsage).values({
         userId,
         feature: "language_course_template_vocab",
         theme: "language_course_template_vocab",
-        keywords: `${body.targetLanguageCode}|${body.level}|${body.lessonCount}`,
+        keywords: `${targetLanguageCode}|${level}|${lessonCount}`,
         model: attemptedModels[0] || "none",
         status: "failed",
         errorMessage,
@@ -170,20 +267,39 @@ adminLanguageRouter.post(
         {
           error: "generation_failed",
           message: "Failed to generate lesson vocabulary. Please retry.",
+          traceId,
         },
         503
       );
     }
 
-    const created = await db.transaction(async (tx) => {
-      const now = new Date();
+    logInfo(traceId, "templates.generate.db.start");
+
+    let created: {
+      template: {
+        id: string;
+        targetLanguageCode: string;
+        level: string;
+        title: string;
+        isPublished: boolean;
+        publishedAt: Date | null;
+        createdAt: Date;
+        updatedAt: Date;
+      };
+      lessons: Array<{ id: string; orderIndex: number; title: string; objective: string }>;
+      vocabItemsInserted: number;
+    };
+
+    try {
+      created = await db.transaction(async (tx) => {
+        const now = new Date();
 
       const [template] = await tx
         .insert(languageCourseTemplates)
         .values({
           createdBy: userId,
-          targetLanguageCode: sanitizeText(body.targetLanguageCode),
-          level: sanitizeText(body.level),
+          targetLanguageCode,
+          level,
           title: courseTitle,
           isPublished: false,
           publishedAt: null,
@@ -276,14 +392,43 @@ adminLanguageRouter.post(
             title: l.title,
             objective: l.objective,
           })),
+        vocabItemsInserted: vocabInserts.length,
       };
-    });
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      logError(traceId, "templates.generate.db.failed", {
+        error: formatUnknownError(error),
+        durationMs: Date.now() - startedAt,
+      });
+
+      await db.insert(aiGenerationUsage).values({
+        userId,
+        feature: "language_course_template_generate",
+        theme: "language_course_template_generate",
+        keywords: `${targetLanguageCode}|${level}|${lessonCount}`,
+        model: planModel || "unknown",
+        status: "failed",
+        errorMessage,
+        metadata: JSON.stringify({ traceId, stage: "db" }),
+      });
+
+      return c.json(
+        {
+          error: "internal_server_error",
+          message: "Failed to save language template. Please retry.",
+          traceId,
+        },
+        500
+      );
+    }
 
     await db.insert(aiGenerationUsage).values({
       userId,
       feature: "language_course_template_generate",
       theme: "language_course_template_generate",
-      keywords: `${body.targetLanguageCode}|${body.level}|${body.lessonCount}`,
+      keywords: `${targetLanguageCode}|${level}|${lessonCount}`,
       model: planModel || "unknown",
       status: "success",
       errorMessage: null,
@@ -298,8 +443,19 @@ adminLanguageRouter.post(
       }),
     });
 
+    logInfo(traceId, "templates.generate.success", {
+      templateId: created.template.id,
+      lessons: created.lessons.length,
+      vocabItemsInserted: created.vocabItemsInserted,
+      planModel,
+      vocabModels: vocabByLesson.map((v) => v.model),
+      durationMs: Date.now() - startedAt,
+    });
+
     return c.json(
       {
+        traceId,
+        durationMs: Date.now() - startedAt,
         template: {
           ...created.template,
           publishedAt: created.template.publishedAt
@@ -354,6 +510,26 @@ adminLanguageRouter.patch(
     });
   }
 );
+
+adminLanguageRouter.delete("/templates/:templateId", async (c) => {
+  const templateId = c.req.param("templateId");
+
+  const [existing] = await db
+    .select({ id: languageCourseTemplates.id })
+    .from(languageCourseTemplates)
+    .where(eq(languageCourseTemplates.id, templateId))
+    .limit(1);
+
+  if (!existing) {
+    return c.json({ error: "not_found", message: "Template not found" }, 404);
+  }
+
+  await db
+    .delete(languageCourseTemplates)
+    .where(eq(languageCourseTemplates.id, templateId));
+
+  return c.json({ message: "Template deleted", templateId });
+});
 
 // Admin helper: show a template with its lessons (for quick review in UI)
 adminLanguageRouter.get("/templates/:templateId", async (c) => {
