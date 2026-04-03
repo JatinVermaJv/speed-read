@@ -44,10 +44,18 @@ async function createTokens(
 }
 
 function setRefreshCookie(c: any, refreshToken: string) {
+  const origin = (c.req.header("origin") ?? "").trim();
+  const isHttpsOrigin = origin.startsWith("https://");
+  const secure = process.env.NODE_ENV === "production" || isHttpsOrigin;
+
+  // If your frontend and backend are on different sites (e.g. *.vercel.app + *.onrender.com),
+  // the refresh cookie must be SameSite=None to be sent on XHR/fetch.
+  const sameSite = secure ? "None" : "Lax";
+
   setCookie(c, "refreshToken", refreshToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "Lax",
+    secure,
+    sameSite,
     path: "/",
     maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
   });

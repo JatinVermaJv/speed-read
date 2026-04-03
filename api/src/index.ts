@@ -12,6 +12,36 @@ import languageRoutes from "./routes/language";
 
 const app = new Hono();
 
+function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/$/, "");
+}
+
+const corsOriginEnv = (process.env.CORS_ORIGIN ?? "").trim();
+const configuredOrigins = corsOriginEnv
+  .split(",")
+  .map(normalizeOrigin)
+  .filter(Boolean);
+
+const allowAnyOrigin = configuredOrigins.includes("*");
+
+if (allowAnyOrigin && process.env.NODE_ENV === "production") {
+  throw new Error(
+    'CORS_ORIGIN="*" is not allowed in production when credentials are enabled. Set CORS_ORIGIN to your exact frontend origin (e.g. https://your-app.vercel.app).'
+  );
+}
+
+if (process.env.NODE_ENV === "production" && configuredOrigins.length === 0) {
+  throw new Error(
+    "CORS_ORIGIN is required in production (e.g. https://your-app.vercel.app)."
+  );
+}
+
+const devFallbackOrigins = ["http://localhost:3000", "http://127.0.0.1:3000"];
+const allowedOrigins =
+  configuredOrigins.length > 0 && !allowAnyOrigin
+    ? configuredOrigins
+    : devFallbackOrigins;
+
 // ─── Global Middleware ──────────────────────────────────────────────────────
 
 // Request logging
@@ -21,7 +51,16 @@ app.use("*", logger());
 app.use(
   "*",
   cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    origin: (origin) => {
+      const requestOrigin = normalizeOrigin(origin ?? "");
+      if (!requestOrigin) return null;
+
+      if (allowAnyOrigin) {
+        return requestOrigin;
+      }
+
+      return allowedOrigins.includes(requestOrigin) ? requestOrigin : null;
+    },
     credentials: true,
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
@@ -36,6 +75,10 @@ app.use("*", securityHeaders);
 app.use("*", rateLimiter({ windowMs: 60 * 1000, max: 100 }));
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
+
+app.get("/", (c) => {
+  return c.json({ name: "speed-read-api", status: "ok" });
+});
 
 app.route("/auth", authRoutes);
 app.route("/passages", passagesRoutes);
