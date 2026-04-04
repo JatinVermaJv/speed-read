@@ -6,6 +6,24 @@ export type TtsVoicePreference = {
 
 const STORAGE_KEY = "speedread_tts_voice_prefs_v1";
 
+let speakRequestSeq = 0;
+
+function queueMicrotaskSafe(fn: () => void) {
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(fn);
+    return;
+  }
+  Promise.resolve()
+    .then(fn)
+    .catch(() => {
+      // no-op
+    });
+}
+
+function normalizeLangTag(code: string): string {
+  return (code || "").trim().replace(/_/g, "-");
+}
+
 export function getLanguageVoiceKey(languageCode: string): string {
   const raw = (languageCode || "").trim().toLowerCase();
   if (!raw) return "";
@@ -79,13 +97,14 @@ function pickAutoVoice(
   voices: SpeechSynthesisVoice[],
   languageCode: string
 ): SpeechSynthesisVoice | null {
-  const normalizedLang = (languageCode || "").trim().toLowerCase();
+  const normalizedLang = normalizeLangTag(languageCode).toLowerCase();
   if (!normalizedLang) return null;
 
   const baseLang = normalizedLang.split("-")[0];
 
   return (
     voices.find((v) => v.lang?.toLowerCase() === normalizedLang) ||
+    voices.find((v) => v.lang?.toLowerCase() === baseLang) ||
     voices.find((v) => v.lang?.toLowerCase().startsWith(`${baseLang}-`)) ||
     null
   );
@@ -99,10 +118,13 @@ function pickPreferredVoice(
 
   const uri = preferred.voiceURI.trim();
   const name = preferred.name.trim();
+  const preferredLang = normalizeLangTag(preferred.lang).toLowerCase();
 
   return (
     voices.find((v) => v.voiceURI === uri) ||
-    voices.find((v) => v.name === name && v.lang === preferred.lang) ||
+    voices.find(
+      (v) => v.name === name && normalizeLangTag(v.lang).toLowerCase() === preferredLang
+    ) ||
     voices.find((v) => v.name === name) ||
     null
   );
@@ -122,18 +144,31 @@ export function speakTextWithTts(params: {
   if (!text) return;
 
   const synth = window.speechSynthesis;
+  const requestSeq = ++speakRequestSeq;
 
   try {
-    synth.cancel();
-
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = params.languageCode;
+    const normalizedLang = normalizeLangTag(params.languageCode);
+    utter.lang = normalizedLang || params.languageCode;
 
     if (typeof params.rate === "number") utter.rate = params.rate;
     if (typeof params.pitch === "number") utter.pitch = params.pitch;
     if (typeof params.volume === "number") utter.volume = params.volume;
 
-    const voices = synth.getVoices();
+    // Some mobile browsers can end up paused.
+    try {
+      synth.resume();
+    } catch {
+      // ignore
+    }
+
+    const voices = (() => {
+      try {
+        return synth.getVoices() || [];
+      } catch {
+        return [] as SpeechSynthesisVoice[];
+      }
+    })();
 
     const chosen =
       pickPreferredVoice(voices, params.preferredVoice) ||
@@ -144,11 +179,43 @@ export function speakTextWithTts(params: {
       // When a specific voice is chosen, align the utterance language with it.
       // This helps some browsers pick the right phonemes/pronunciation.
       if (chosen.lang) {
-        utter.lang = chosen.lang;
+        const chosenLang = normalizeLangTag(chosen.lang);
+        utter.lang = chosenLang || chosen.lang;
       }
     }
 
-    synth.speak(utter);
+    const doSpeak = () => {
+      if (requestSeq !== speakRequestSeq) return;
+      try {
+        synth.resume();
+      } catch {
+        // ignore
+      }
+      synth.speak(utter);
+    };
+
+    // Avoid cancel() unless something is already playing/queued.
+    // Some browsers can drop the next utterance if cancel() and speak() happen
+    // back-to-back in the same tick.
+    const needsCancel = (() => {
+      try {
+        return synth.speaking || synth.pending;
+      } catch {
+        return false;
+      }
+    })();
+
+    if (needsCancel) {
+      try {
+        synth.cancel();
+      } catch {
+        // ignore
+      }
+      queueMicrotaskSafe(doSpeak);
+      return;
+    }
+
+    doSpeak();
   } catch {
     // no-op
   }

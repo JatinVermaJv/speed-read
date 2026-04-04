@@ -6,6 +6,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
   getLanguageVoiceKey,
+  isBrowserTtsSupported,
   loadTtsVoicePrefs,
   speakTextWithTts,
   type TtsVoicePreference,
@@ -138,18 +139,49 @@ export default function LanguagePage() {
     setTtsVoicePrefs(loadTtsVoicePrefs());
   }, []);
 
+  useEffect(() => {
+    if (!isBrowserTtsSupported()) return;
+
+    const synth = window.speechSynthesis;
+    const warm = () => {
+      try {
+        synth.getVoices();
+      } catch {
+        // ignore
+      }
+    };
+
+    warm();
+    const handler = () => warm();
+    synth.onvoiceschanged = handler;
+
+    return () => {
+      if (synth.onvoiceschanged === handler) {
+        synth.onvoiceschanged = null;
+      }
+    };
+  }, []);
+
   const activeTtsVoicePref = useMemo(() => {
     const key = getLanguageVoiceKey(activeCourseTargetLang);
     return key ? ttsVoicePrefs[key] : null;
   }, [activeCourseTargetLang, ttsVoicePrefs]);
 
   const speakActive = useCallback(
-    (text: string) =>
+    (text: string) => {
+      if (!isBrowserTtsSupported()) {
+        setError(
+          "Text-to-speech isn't supported in this browser. On Android, try Chrome or Edge."
+        );
+        return;
+      }
+
       speakTextWithTts({
         text,
         languageCode: activeCourseTargetLang,
         preferredVoice: activeTtsVoicePref,
-      }),
+      });
+    },
     [activeCourseTargetLang, activeTtsVoicePref]
   );
 
