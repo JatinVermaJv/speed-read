@@ -442,15 +442,6 @@ booksRouter.post(
     }
 
     const { sourceText, source } = deriveSourceText(book);
-    if (!sourceText) {
-      return c.json(
-        {
-          error: "validation_error",
-          message: "Add some notes (or ensure the Google Books description is available) before generating summaries.",
-        },
-        400
-      );
-    }
 
     const traceId = makeTraceId();
     const kind = `summary_${body.kind}`;
@@ -478,7 +469,7 @@ booksRouter.post(
         theme: sanitizeText(book.title),
         model: generated.model,
         status: "success",
-        metadata: { bookId, kind, source },
+        metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText) },
       });
 
       return c.json({
@@ -505,7 +496,7 @@ booksRouter.post(
         model: attemptedModels[0] || "none",
         status: "failed",
         errorMessage,
-        metadata: { bookId, kind, source, attemptedModels },
+        metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText), attemptedModels },
       });
 
       return c.json(
@@ -539,15 +530,6 @@ booksRouter.post("/:id/ai/takeaways-themes", async (c) => {
   }
 
   const { sourceText, source } = deriveSourceText(book);
-  if (!sourceText) {
-    return c.json(
-      {
-        error: "validation_error",
-        message: "Add some notes (or ensure the Google Books description is available) before generating takeaways/themes.",
-      },
-      400
-    );
-  }
 
   const traceId = makeTraceId();
   const kind = "takeaways_themes";
@@ -574,7 +556,7 @@ booksRouter.post("/:id/ai/takeaways-themes", async (c) => {
       theme: sanitizeText(book.title),
       model: generated.model,
       status: "success",
-      metadata: { bookId, kind, source },
+      metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText) },
     });
 
     return c.json({
@@ -601,7 +583,7 @@ booksRouter.post("/:id/ai/takeaways-themes", async (c) => {
       model: attemptedModels[0] || "none",
       status: "failed",
       errorMessage,
-      metadata: { bookId, kind, source, attemptedModels },
+      metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText), attemptedModels },
     });
 
     return c.json({ error: "generation_failed", message: errorMessage }, 503);
@@ -631,15 +613,6 @@ booksRouter.post("/:id/ai/philosophy", async (c) => {
   }
 
   const { sourceText, source } = deriveSourceText(book);
-  if (!sourceText) {
-    return c.json(
-      {
-        error: "validation_error",
-        message: "Add some notes (or ensure the Google Books description is available) before generating philosophical angles.",
-      },
-      400
-    );
-  }
 
   const traceId = makeTraceId();
   const kind = "philosophical_angles";
@@ -666,7 +639,7 @@ booksRouter.post("/:id/ai/philosophy", async (c) => {
       theme: sanitizeText(book.title),
       model: generated.model,
       status: "success",
-      metadata: { bookId, kind, source },
+      metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText) },
     });
 
     return c.json({
@@ -693,7 +666,7 @@ booksRouter.post("/:id/ai/philosophy", async (c) => {
       model: attemptedModels[0] || "none",
       status: "failed",
       errorMessage,
-      metadata: { bookId, kind, source, attemptedModels },
+      metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText), attemptedModels },
     });
 
     return c.json({ error: "generation_failed", message: errorMessage }, 503);
@@ -723,18 +696,46 @@ booksRouter.post("/:id/ai/quotes", async (c) => {
   }
 
   const { sourceText, source } = deriveSourceText(book);
-  if (!sourceText) {
-    return c.json(
-      {
-        error: "validation_error",
-        message: "Add some notes (or ensure the Google Books description is available) before extracting quotes.",
-      },
-      400
-    );
-  }
 
   const traceId = makeTraceId();
   const kind = "quote_extraction";
+
+  if (!sourceText) {
+    const payload = {
+      quotes: [],
+      note: "No notes/description were provided, so there is nothing to extract verbatim quotes from. Add notes (or refresh metadata) to enable quote extraction.",
+    };
+
+    const stored = await upsertAiOutput({
+      userId,
+      bookId,
+      kind,
+      payload,
+      model: "none",
+    });
+
+    await logAiUsage({
+      userId,
+      feature: "book_quote_extraction",
+      theme: sanitizeText(book.title),
+      model: "none",
+      status: "success",
+      metadata: { bookId, kind, source, hasSourceText: false },
+    });
+
+    return c.json({
+      kind,
+      model: "none",
+      payload,
+      stored: stored
+        ? {
+            ...stored,
+            createdAt: stored.createdAt.toISOString(),
+            updatedAt: stored.updatedAt.toISOString(),
+          }
+        : null,
+    });
+  }
 
   try {
     const generated = await generateBookQuoteExtraction({
@@ -758,7 +759,7 @@ booksRouter.post("/:id/ai/quotes", async (c) => {
       theme: sanitizeText(book.title),
       model: generated.model,
       status: "success",
-      metadata: { bookId, kind, source },
+      metadata: { bookId, kind, source, hasSourceText: true },
     });
 
     return c.json({
@@ -785,7 +786,7 @@ booksRouter.post("/:id/ai/quotes", async (c) => {
       model: attemptedModels[0] || "none",
       status: "failed",
       errorMessage,
-      metadata: { bookId, kind, source, attemptedModels },
+      metadata: { bookId, kind, source, hasSourceText: true, attemptedModels },
     });
 
     return c.json({ error: "generation_failed", message: errorMessage }, 503);
@@ -823,15 +824,6 @@ booksRouter.post(
     }
 
     const { sourceText, source } = deriveSourceText(book);
-    if (!sourceText) {
-      return c.json(
-        {
-          error: "validation_error",
-          message: "Add some notes (or ensure the Google Books description is available) before generating apply-first advice.",
-        },
-        400
-      );
-    }
 
     const traceId = makeTraceId();
     const kind = "apply_first";
@@ -859,7 +851,7 @@ booksRouter.post(
         theme: sanitizeText(book.title),
         model: generated.model,
         status: "success",
-        metadata: { bookId, kind, source },
+        metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText) },
       });
 
       return c.json({
@@ -886,7 +878,7 @@ booksRouter.post(
         model: attemptedModels[0] || "none",
         status: "failed",
         errorMessage,
-        metadata: { bookId, kind, source, attemptedModels },
+        metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText), attemptedModels },
       });
 
       return c.json({ error: "generation_failed", message: errorMessage }, 503);
@@ -919,15 +911,6 @@ booksRouter.post("/:id/ai/recommendations", async (c) => {
   }
 
   const { sourceText, source } = deriveSourceText(book);
-  if (!sourceText) {
-    return c.json(
-      {
-        error: "validation_error",
-        message: "Add some notes (or ensure the Google Books description is available) before generating recommendations.",
-      },
-      400
-    );
-  }
 
   const traceId = makeTraceId();
   const kind = "recommendations";
@@ -1014,6 +997,7 @@ booksRouter.post("/:id/ai/recommendations", async (c) => {
         bookId,
         kind,
         source,
+        hasSourceText: Boolean(sourceText),
         candidateQuery: q,
         candidateCount: uniq.length,
       },
@@ -1047,6 +1031,7 @@ booksRouter.post("/:id/ai/recommendations", async (c) => {
         bookId,
         kind,
         source,
+        hasSourceText: Boolean(sourceText),
         candidateQuery: q,
         candidateCount: uniq.length,
         attemptedModels,
@@ -1081,15 +1066,6 @@ booksRouter.post("/:id/ai/author-background", async (c) => {
   }
 
   const { sourceText, source } = deriveSourceText(book);
-  if (!sourceText) {
-    return c.json(
-      {
-        error: "validation_error",
-        message: "Add some notes (or ensure the Google Books description is available) before generating author background.",
-      },
-      400
-    );
-  }
 
   const traceId = makeTraceId();
   const kind = "author_background";
@@ -1171,6 +1147,7 @@ booksRouter.post("/:id/ai/author-background", async (c) => {
         bookId,
         kind,
         source,
+        hasSourceText: Boolean(sourceText),
         authorCandidateCount: uniq.length,
       },
     });
@@ -1203,6 +1180,7 @@ booksRouter.post("/:id/ai/author-background", async (c) => {
         bookId,
         kind,
         source,
+        hasSourceText: Boolean(sourceText),
         authorCandidateCount: uniq.length,
         attemptedModels,
       },
@@ -1258,17 +1236,6 @@ booksRouter.post("/:id/ai/compare", zValidator("json", compareSchema), async (c)
   const a = deriveSourceText(bookA);
   const b = deriveSourceText(bookB);
 
-  if (!a.sourceText || !b.sourceText) {
-    return c.json(
-      {
-        error: "validation_error",
-        message:
-          "Both books need notes (or a Google Books description) before you can compare them.",
-      },
-      400
-    );
-  }
-
   const traceId = makeTraceId();
   const kind = `compare_${bookB.id}`;
 
@@ -1309,6 +1276,8 @@ booksRouter.post("/:id/ai/compare", zValidator("json", compareSchema), async (c)
         otherBookId: bookB.id,
         sourceA: a.source,
         sourceB: b.source,
+        hasSourceTextA: Boolean(a.sourceText),
+        hasSourceTextB: Boolean(b.sourceText),
       },
     });
 

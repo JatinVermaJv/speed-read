@@ -461,7 +461,7 @@ export default function BookDetailPage({
               onChange={(e) => setNotes(e.target.value)}
               rows={8}
               className="w-full p-4 rounded-lg bg-card border border-border focus:ring-2 focus:ring-ring outline-none resize-y"
-              placeholder="Paste highlights, your own summary, or key passages here. AI features will prefer notes, and fall back to the Google Books description if notes are empty."
+              placeholder="Paste highlights, your own summary, or key passages here. AI will use notes (or the Google Books description) when available; otherwise it generates from title/author (less accurate)."
             />
 
             <div className="flex items-center justify-end">

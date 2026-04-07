@@ -61,6 +61,16 @@ function truncate(input: string, maxChars: number): string {
   return input.slice(0, maxChars);
 }
 
+function normalizeSourceText(
+  value: string | null | undefined,
+  maxChars: number
+): string | null {
+  if (typeof value !== "string") return null;
+  const sanitized = sanitizeSourceText(value);
+  if (!sanitized) return null;
+  return truncate(sanitized, maxChars);
+}
+
 const bookSummaryTldrSchema = z.object({
   tldr: z.string().trim().min(20).max(600),
   bullets: z.array(z.string().trim().min(3).max(220)).min(3).max(7),
@@ -208,22 +218,26 @@ export type BookAiPayload =
   | z.infer<typeof bookCompareSchema>;
 
 function baseSystemJsonInstruction(shapeHint: string) {
-  return `You are a careful book assistant. Return ONLY valid JSON (no markdown, no code fences). Output must match this shape exactly: ${shapeHint}.\nRules:\n- Use ONLY the provided source text; do not invent facts, plot points, or quotes.\n- If the source text lacks information, keep it generic and explicitly avoid guessing.\n- Keep language safe for all ages.`;
+  return `You are a careful book assistant. Return ONLY valid JSON (no markdown, no code fences). Output must match this shape exactly: ${shapeHint}.\nRules:\n- Always return the full JSON shape (never refuse); if details are missing, use generic high-level content that still fits the requested structure.\n- If SOURCE TEXT is provided, ground your answer in it and do not contradict it.\n- If SOURCE TEXT is missing/empty, generate using only the book title and author; keep it high-level and use cautious language ("likely", "may", "often").\n- Do not output verbatim excerpts or lines from the book. Avoid quotation marks unless you are explicitly asked to extract quotes AND the quote appears in SOURCE TEXT.\n- Never invent direct quotes. Only include verbatim quotes if they appear in SOURCE TEXT.\n- Do not invent bibliographic facts (dates, page counts) or claim certainty when you are unsure.\n- Keep language safe for all ages.`;
 }
 
 function baseSystemJsonInstructionFromInputs(shapeHint: string) {
-  return `You are a careful book assistant. Return ONLY valid JSON (no markdown, no code fences). Output must match this shape exactly: ${shapeHint}.\nRules:\n- Use ONLY the provided inputs (book context + any candidate lists).\n- Do not invent bibliographic facts (dates, page counts), and do not invent quotes.\n- If details are missing, use cautious language ("may", "might") and keep it general.`;
+  return `You are a careful book assistant. Return ONLY valid JSON (no markdown, no code fences). Output must match this shape exactly: ${shapeHint}.\nRules:\n- Always return the full JSON shape (never refuse); if details are missing, use generic high-level content that still fits the requested structure.\n- Use ONLY the provided inputs (book context + any candidate lists).\n- If SOURCE TEXT is missing/empty, keep your output general and avoid specific factual claims you cannot verify.\n- Do not output verbatim excerpts or lines from the book. Avoid quotation marks unless you are explicitly asked to extract quotes AND the quote appears in SOURCE TEXT.\n- Do not invent bibliographic facts (dates, page counts), and never invent direct quotes.\n- If details are missing, use cautious language ("may", "might") and keep it general.`;
 }
 
 function buildContext(params: {
   title: string;
   author: string;
-  sourceText: string;
+  sourceText?: string | null;
   goal?: string;
 }) {
   const goalText = params.goal?.trim() ? `\nUser goal: ${params.goal.trim()}` : "";
 
-  return `Book title: ${params.title}\nAuthor: ${params.author}${goalText}\n\nSOURCE TEXT (notes/description):\n${params.sourceText}`;
+  const sourceBlock = params.sourceText
+    ? `SOURCE TEXT (user notes / Google Books description):\n${params.sourceText}`
+    : "SOURCE TEXT: (none provided)";
+
+  return `Book title: ${params.title}\nAuthor: ${params.author}${goalText}\n\n${sourceBlock}`;
 }
 
 async function generateWithModels<T>(params: {
@@ -289,10 +303,10 @@ export async function generateBookSummary(params: {
   kind: BookSummaryKind;
   title: string;
   author: string;
-  sourceText: string;
+  sourceText?: string | null;
   traceId?: string;
 }): Promise<{ model: string; payload: BookAiPayload }> {
-  const sourceText = truncate(sanitizeSourceText(params.sourceText), 50_000);
+  const sourceText = normalizeSourceText(params.sourceText, 50_000);
 
   if (params.kind === "tldr") {
     const result = await generateWithModels({
@@ -403,10 +417,10 @@ export async function generateBookSummary(params: {
 export async function generateBookTakeawaysThemes(params: {
   title: string;
   author: string;
-  sourceText: string;
+  sourceText?: string | null;
   traceId?: string;
 }): Promise<{ model: string; payload: z.infer<typeof bookTakeawaysThemesSchema> }> {
-  const sourceText = truncate(sanitizeSourceText(params.sourceText), 50_000);
+  const sourceText = normalizeSourceText(params.sourceText, 50_000);
 
   return generateWithModels({
     traceId: params.traceId,
@@ -430,10 +444,10 @@ export async function generateBookTakeawaysThemes(params: {
 export async function generateBookPhilosophicalAngles(params: {
   title: string;
   author: string;
-  sourceText: string;
+  sourceText?: string | null;
   traceId?: string;
 }): Promise<{ model: string; payload: z.infer<typeof bookPhilosophicalAnglesSchema> }> {
-  const sourceText = truncate(sanitizeSourceText(params.sourceText), 50_000);
+  const sourceText = normalizeSourceText(params.sourceText, 50_000);
 
   return generateWithModels({
     traceId: params.traceId,
@@ -490,11 +504,11 @@ export async function generateBookQuoteExtraction(params: {
 export async function generateBookApplyFirst(params: {
   title: string;
   author: string;
-  sourceText: string;
+  sourceText?: string | null;
   goal?: string;
   traceId?: string;
 }): Promise<{ model: string; payload: z.infer<typeof bookApplyFirstSchema> }> {
-  const sourceText = truncate(sanitizeSourceText(params.sourceText), 50_000);
+  const sourceText = normalizeSourceText(params.sourceText, 50_000);
 
   return generateWithModels({
     traceId: params.traceId,
@@ -520,7 +534,7 @@ export async function generateBookApplyFirst(params: {
 export async function generateBookRecommendations(params: {
   title: string;
   author: string;
-  sourceText: string;
+  sourceText?: string | null;
   candidates: Array<{
     id: string;
     title: string;
@@ -529,7 +543,7 @@ export async function generateBookRecommendations(params: {
   }>;
   traceId?: string;
 }): Promise<{ model: string; payload: z.infer<typeof bookRecommendationsSchema> }> {
-  const sourceText = truncate(sanitizeSourceText(params.sourceText), 30_000);
+  const sourceText = normalizeSourceText(params.sourceText, 30_000);
   const candidates = (params.candidates || []).slice(0, 12).map((c) => ({
     id: c.id,
     title: truncate(c.title, 180),
@@ -551,7 +565,7 @@ export async function generateBookRecommendations(params: {
       {
         role: "user",
         content:
-          `Book title: ${params.title}\nAuthor: ${params.author}\n\nSOURCE TEXT (notes/description):\n${sourceText}` +
+          buildContext({ title: params.title, author: params.author, sourceText }) +
           `\n\nCANDIDATE BOOKS (choose only from these if any are provided):\n${JSON.stringify(
             candidates,
             null,
@@ -566,11 +580,11 @@ export async function generateBookRecommendations(params: {
 export async function generateBookAuthorBackground(params: {
   title: string;
   author: string;
-  sourceText: string;
+  sourceText?: string | null;
   authorBooks: Array<{ id: string; title: string; description: string | null }>;
   traceId?: string;
 }): Promise<{ model: string; payload: z.infer<typeof bookAuthorBackgroundSchema> }> {
-  const sourceText = truncate(sanitizeSourceText(params.sourceText), 30_000);
+  const sourceText = normalizeSourceText(params.sourceText, 30_000);
   const authorBooks = (params.authorBooks || []).slice(0, 12).map((b) => ({
     id: b.id,
     title: truncate(b.title, 180),
@@ -591,7 +605,7 @@ export async function generateBookAuthorBackground(params: {
       {
         role: "user",
         content:
-          `Book title: ${params.title}\nAuthor: ${params.author}\n\nSOURCE TEXT (notes/description):\n${sourceText}` +
+          buildContext({ title: params.title, author: params.author, sourceText }) +
           `\n\nOTHER BOOKS BY THIS AUTHOR (if any):\n${JSON.stringify(authorBooks, null, 2)}` +
           "\n\nTask: Write a short author background snapshot, extract 3–12 common themes, and suggest up to 6 next reads.\nConstraints:\n- If the list of other books is provided, prefer suggesting next reads from that list (use matching 'id' when possible).\n- Avoid specific biographical claims unless strongly implied by the inputs; keep it cautious if uncertain.\n- No markdown; JSON only.",
       },
@@ -602,14 +616,14 @@ export async function generateBookAuthorBackground(params: {
 export async function generateBookCompare(params: {
   bookATitle: string;
   bookAAuthor: string;
-  bookASourceText: string;
+  bookASourceText?: string | null;
   bookBTitle: string;
   bookBAuthor: string;
-  bookBSourceText: string;
+  bookBSourceText?: string | null;
   traceId?: string;
 }): Promise<{ model: string; payload: z.infer<typeof bookCompareSchema> }> {
-  const aText = truncate(sanitizeSourceText(params.bookASourceText), 30_000);
-  const bText = truncate(sanitizeSourceText(params.bookBSourceText), 30_000);
+  const aText = normalizeSourceText(params.bookASourceText, 30_000);
+  const bText = normalizeSourceText(params.bookBSourceText, 30_000);
 
   return generateWithModels({
     traceId: params.traceId,
@@ -625,8 +639,8 @@ export async function generateBookCompare(params: {
       {
         role: "user",
         content:
-          `BOOK A\nTitle: ${params.bookATitle}\nAuthor: ${params.bookAAuthor}\n\nSOURCE TEXT A:\n${aText}` +
-          `\n\nBOOK B\nTitle: ${params.bookBTitle}\nAuthor: ${params.bookBAuthor}\n\nSOURCE TEXT B:\n${bText}` +
+          `BOOK A\nTitle: ${params.bookATitle}\nAuthor: ${params.bookAAuthor}\n\nSOURCE TEXT A:\n${aText ?? "(none provided)"}` +
+          `\n\nBOOK B\nTitle: ${params.bookBTitle}\nAuthor: ${params.bookBAuthor}\n\nSOURCE TEXT B:\n${bText ?? "(none provided)"}` +
           "\n\nTask: Compare the two books based on the provided source texts. Provide 3–12 similarities, 3–12 differences across clear dimensions, plus advice on who should read which and a suggestion if reading both.\nNo markdown; JSON only.",
       },
     ],

@@ -261,6 +261,14 @@ export default function BookStorePage() {
                     key={book.id}
                     className="group glow-card rounded-2xl overflow-hidden relative"
                   >
+                    <Link
+                      href={`/bookstore/${book.id}`}
+                      aria-label={`Open ${book.title}`}
+                      className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="sr-only">Open book</span>
+                    </Link>
+
                     <div className="relative aspect-[3/4]">
                       <BookCover
                         src={book.coverImageUrl}
@@ -278,7 +286,7 @@ export default function BookStorePage() {
                       </div>
 
                       {/* Hover quick actions */}
-                      <div className="absolute inset-x-0 bottom-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="absolute inset-x-0 bottom-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/bookstore/${book.id}`}
