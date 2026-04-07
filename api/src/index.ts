@@ -9,6 +9,7 @@ import sessionsRoutes from "./routes/sessions";
 import adminRoutes from "./routes/admin";
 import unseenRoutes from "./routes/unseen";
 import languageRoutes from "./routes/language";
+import booksRoutes from "./routes/books";
 
 const app = new Hono();
 
@@ -86,6 +87,7 @@ app.route("/sessions", sessionsRoutes);
 app.route("/admin", adminRoutes);
 app.route("/unseen", unseenRoutes);
 app.route("/language", languageRoutes);
+app.route("/books", booksRoutes);
 
 // ─── Health Check ───────────────────────────────────────────────────────────
 

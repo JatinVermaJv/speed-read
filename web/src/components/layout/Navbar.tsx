@@ -34,6 +34,14 @@ export function Navbar() {
           >
             Reader
           </Link>
+
+          <Link
+            href="/bookstore"
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <BookOpen className="w-4 h-4" />
+            Book Store
+          </Link>
           <Link
             href="/dashboard"
             className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
@@ -115,6 +123,13 @@ export function Navbar() {
             onClick={() => setMobileOpen(false)}
           >
             Reader
+          </Link>
+          <Link
+            href="/bookstore"
+            className="block text-muted-foreground hover:text-foreground"
+            onClick={() => setMobileOpen(false)}
+          >
+            Book Store
           </Link>
           <Link
             href="/dashboard"
