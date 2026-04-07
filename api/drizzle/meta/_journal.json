@@ -29,6 +29,13 @@
       "when": 1774972484235,
       "tag": "0003_yielding_gertrude_yorkes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775507439617,
+      "tag": "0004_next_golden_guardian",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ import {
   boolean,
   integer,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -160,6 +161,55 @@ export const aiGenerationUsage = pgTable("ai_generation_usage", {
   metadata: text("metadata"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// ─── Book Store ───────────────────────────────────────────────────────────
+
+export const books = pgTable("books", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 500 }).notNull(),
+  author: varchar("author", { length: 255 }).notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("to_read"),
+  rating: integer("rating"),
+  notes: text("notes"),
+
+  // Google Books metadata (optional; safe-fail)
+  googleVolumeId: varchar("google_volume_id", { length: 120 }),
+  coverImageUrl: text("cover_image_url"),
+  description: text("description"),
+  categories: text("categories"),
+  publishedDate: varchar("published_date", { length: 40 }),
+  pageCount: integer("page_count"),
+  publisher: varchar("publisher", { length: 255 }),
+  language: varchar("language", { length: 20 }),
+  previewLink: text("preview_link"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const bookAiOutputs = pgTable(
+  "book_ai_outputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bookId: uuid("book_id")
+      .notNull()
+      .references(() => books.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 60 }).notNull(),
+    payload: text("payload").notNull(),
+    model: varchar("model", { length: 120 }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    bookKindUnique: uniqueIndex("book_ai_outputs_book_kind_unique").on(t.bookId, t.kind),
+  })
+);
 
 // ─── Language Learning (Duolingo-MVP) ───────────────────────────────────────
 

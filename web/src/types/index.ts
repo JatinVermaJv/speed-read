@@ -200,3 +200,38 @@ export interface LanguageAttemptLog {
   targetLanguageCode: string;
   level: string;
 }
+
+// ─── Book Store ───────────────────────────────────────────────────────────
+
+export type BookStatus = "to_read" | "reading" | "finished" | "abandoned";
+
+export interface Book {
+  id: string;
+  userId: string;
+  title: string;
+  author: string;
+  status: BookStatus;
+  rating: number | null;
+  notes: string | null;
+
+  googleVolumeId: string | null;
+  coverImageUrl: string | null;
+  description: string | null;
+  categories: string | null;
+  publishedDate: string | null;
+  pageCount: number | null;
+  publisher: string | null;
+  language: string | null;
+  previewLink: string | null;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BookAiOutput {
+  kind: string;
+  payload: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+}
