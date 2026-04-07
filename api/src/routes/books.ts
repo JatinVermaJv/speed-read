@@ -13,7 +13,6 @@ import {
   generateBookCompare,
   generateBookPhilosophicalAngles,
   generateBookQuoteExtraction,
-  generateBookRecommendations,
   generateBookSummary,
   generateBookTakeawaysThemes,
 } from "../services/openrouterBooks";
@@ -78,6 +77,26 @@ function deriveSourceText(book: { notes: string | null; description: string | nu
   if (description) return { sourceText: description, source: "description" };
 
   return { sourceText: null, source: null };
+}
+
+function classifyOpenRouterFailure(error: unknown): {
+  message: string;
+  attemptedModels: string[];
+  status: 429 | 503;
+  retryAfterSeconds?: number;
+} {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (error instanceof OpenRouterGenerationError) {
+    return {
+      message,
+      attemptedModels: error.attemptedModels,
+      status: error.lastStatus === 429 ? 429 : 503,
+      retryAfterSeconds: error.retryAfterSeconds,
+    };
+  }
+
+  return { message, attemptedModels: [], status: 503 };
 }
 
 function normalizeKey(input: string): string {
@@ -485,23 +504,31 @@ booksRouter.post(
           : null,
       });
     } catch (error) {
-      const attemptedModels =
-        error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const failure = classifyOpenRouterFailure(error);
 
       await logAiUsage({
         userId,
         feature: "book_summary",
         theme: sanitizeText(book.title),
-        model: attemptedModels[0] || "none",
+        model: failure.attemptedModels[0] || "none",
         status: "failed",
-        errorMessage,
-        metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText), attemptedModels },
+        errorMessage: failure.message,
+        metadata: {
+          bookId,
+          kind,
+          source,
+          hasSourceText: Boolean(sourceText),
+          attemptedModels: failure.attemptedModels,
+        },
       });
 
+      if (failure.status === 429 && failure.retryAfterSeconds) {
+        c.header("Retry-After", String(failure.retryAfterSeconds));
+      }
+
       return c.json(
-        { error: "generation_failed", message: errorMessage },
-        503
+        { error: "generation_failed", message: failure.message },
+        failure.status
       );
     }
   }
@@ -572,21 +599,32 @@ booksRouter.post("/:id/ai/takeaways-themes", async (c) => {
         : null,
     });
   } catch (error) {
-    const attemptedModels =
-      error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const failure = classifyOpenRouterFailure(error);
 
     await logAiUsage({
       userId,
       feature: "book_takeaways_themes",
       theme: sanitizeText(book.title),
-      model: attemptedModels[0] || "none",
+      model: failure.attemptedModels[0] || "none",
       status: "failed",
-      errorMessage,
-      metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText), attemptedModels },
+      errorMessage: failure.message,
+      metadata: {
+        bookId,
+        kind,
+        source,
+        hasSourceText: Boolean(sourceText),
+        attemptedModels: failure.attemptedModels,
+      },
     });
 
-    return c.json({ error: "generation_failed", message: errorMessage }, 503);
+    if (failure.status === 429 && failure.retryAfterSeconds) {
+      c.header("Retry-After", String(failure.retryAfterSeconds));
+    }
+
+    return c.json(
+      { error: "generation_failed", message: failure.message },
+      failure.status
+    );
   }
 });
 
@@ -655,21 +693,32 @@ booksRouter.post("/:id/ai/philosophy", async (c) => {
         : null,
     });
   } catch (error) {
-    const attemptedModels =
-      error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const failure = classifyOpenRouterFailure(error);
 
     await logAiUsage({
       userId,
       feature: "book_philosophical_angles",
       theme: sanitizeText(book.title),
-      model: attemptedModels[0] || "none",
+      model: failure.attemptedModels[0] || "none",
       status: "failed",
-      errorMessage,
-      metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText), attemptedModels },
+      errorMessage: failure.message,
+      metadata: {
+        bookId,
+        kind,
+        source,
+        hasSourceText: Boolean(sourceText),
+        attemptedModels: failure.attemptedModels,
+      },
     });
 
-    return c.json({ error: "generation_failed", message: errorMessage }, 503);
+    if (failure.status === 429 && failure.retryAfterSeconds) {
+      c.header("Retry-After", String(failure.retryAfterSeconds));
+    }
+
+    return c.json(
+      { error: "generation_failed", message: failure.message },
+      failure.status
+    );
   }
 });
 
@@ -775,21 +824,32 @@ booksRouter.post("/:id/ai/quotes", async (c) => {
         : null,
     });
   } catch (error) {
-    const attemptedModels =
-      error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const failure = classifyOpenRouterFailure(error);
 
     await logAiUsage({
       userId,
       feature: "book_quote_extraction",
       theme: sanitizeText(book.title),
-      model: attemptedModels[0] || "none",
+      model: failure.attemptedModels[0] || "none",
       status: "failed",
-      errorMessage,
-      metadata: { bookId, kind, source, hasSourceText: true, attemptedModels },
+      errorMessage: failure.message,
+      metadata: {
+        bookId,
+        kind,
+        source,
+        hasSourceText: true,
+        attemptedModels: failure.attemptedModels,
+      },
     });
 
-    return c.json({ error: "generation_failed", message: errorMessage }, 503);
+    if (failure.status === 429 && failure.retryAfterSeconds) {
+      c.header("Retry-After", String(failure.retryAfterSeconds));
+    }
+
+    return c.json(
+      { error: "generation_failed", message: failure.message },
+      failure.status
+    );
   }
 });
 
@@ -867,26 +927,37 @@ booksRouter.post(
           : null,
       });
     } catch (error) {
-      const attemptedModels =
-        error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const failure = classifyOpenRouterFailure(error);
 
       await logAiUsage({
         userId,
         feature: "book_apply_first",
         theme: sanitizeText(book.title),
-        model: attemptedModels[0] || "none",
+        model: failure.attemptedModels[0] || "none",
         status: "failed",
-        errorMessage,
-        metadata: { bookId, kind, source, hasSourceText: Boolean(sourceText), attemptedModels },
+        errorMessage: failure.message,
+        metadata: {
+          bookId,
+          kind,
+          source,
+          hasSourceText: Boolean(sourceText),
+          attemptedModels: failure.attemptedModels,
+        },
       });
 
-      return c.json({ error: "generation_failed", message: errorMessage }, 503);
+      if (failure.status === 429 && failure.retryAfterSeconds) {
+        c.header("Retry-After", String(failure.retryAfterSeconds));
+      }
+
+      return c.json(
+        { error: "generation_failed", message: failure.message },
+        failure.status
+      );
     }
   }
 );
 
-// ─── AI: Recommendations (Hybrid: Google Books + LLM reasons) ────────────
+// ─── AI: Recommendations (Google Books metadata only) ────────────────────
 
 booksRouter.post("/:id/ai/recommendations", async (c) => {
   const userId = c.get("userId") as string;
@@ -910,136 +981,108 @@ booksRouter.post("/:id/ai/recommendations", async (c) => {
     return c.json({ error: "not_found", message: "Book not found" }, 404);
   }
 
-  const { sourceText, source } = deriveSourceText(book);
-
   const traceId = makeTraceId();
   const kind = "recommendations";
 
-  const category = (book.categories ?? "")
+  const categoryList = (book.categories ?? "")
     .split(",")
     .map((c) => c.trim())
-    .filter(Boolean)[0];
+    .filter(Boolean)
+    .slice(0, 3);
 
-  const q = category ? `subject:${category}` : `${book.title} ${book.author}`;
-  const gbCandidates = await searchVolumes({ q, maxResults: 12, traceId });
+  const queries = [
+    ...categoryList.map((cat) => `subject:${cat}`),
+    `intitle:${book.title}`,
+    `inauthor:${book.author}`,
+    `${book.title} ${book.author}`,
+  ];
 
-  const filtered = gbCandidates
-    .filter((cnd) => cnd.googleVolumeId !== (book.googleVolumeId ?? ""))
-    .filter((cnd) => typeof cnd.title === "string" && cnd.title.trim().length > 0);
+  const currentVolumeId = (book.googleVolumeId ?? "").trim();
+  const currentKey = normalizeKey(`${book.title}|${book.author}`);
 
-  const uniq: typeof filtered = [];
-  const seen = new Set<string>();
-  for (const cnd of filtered) {
-    const key = normalizeKey(`${cnd.title ?? ""}|${cnd.author ?? ""}`);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    uniq.push(cnd);
+  const collected: Array<Awaited<ReturnType<typeof searchVolumes>>[number]> = [];
+  const seenIds = new Set<string>();
+  const seenKeys = new Set<string>();
+
+  const addCandidate = (cnd: (typeof collected)[number]) => {
+    if (currentVolumeId && cnd.googleVolumeId === currentVolumeId) return;
+    if (typeof cnd.title !== "string" || cnd.title.trim().length === 0) return;
+
+    const key = normalizeKey(`${cnd.title}|${cnd.author ?? ""}`);
+    if (!key || key === currentKey) return;
+    if (seenIds.has(cnd.googleVolumeId)) return;
+    if (seenKeys.has(key)) return;
+
+    seenIds.add(cnd.googleVolumeId);
+    seenKeys.add(key);
+    collected.push(cnd);
+  };
+
+  const queriesUsed: string[] = [];
+  for (const q of queries) {
+    if (collected.length >= 10) break;
+    if (!q.trim()) continue;
+
+    queriesUsed.push(q);
+    const batch = await searchVolumes({ q, maxResults: 20, traceId });
+    for (const cnd of batch) addCandidate(cnd);
   }
 
-  try {
-    const generated = await generateBookRecommendations({
-      title: book.title,
-      author: book.author,
-      sourceText,
-      candidates: uniq.slice(0, 12).map((cnd) => ({
-        id: cnd.googleVolumeId,
-        title: cnd.title ?? "",
-        author: cnd.author,
-        description: cnd.description,
-      })),
-      traceId,
-    });
+  const payload = {
+    recommendations: collected.slice(0, 20).map((cnd) => ({
+      googleVolumeId: cnd.googleVolumeId,
+      title: cnd.title,
+      author: cnd.author,
+      coverImageUrl: cnd.coverImageUrl,
+      previewLink: cnd.previewLink,
+      categories: cnd.categories,
+      description: cnd.description,
+      publishedDate: cnd.publishedDate,
+      pageCount: cnd.pageCount,
+      publisher: cnd.publisher,
+      language: cnd.language,
+    })),
+    note: collected.length < 10
+      ? `Found ${collected.length} results from Google Books for this book.`
+      : undefined,
+    candidateQueries: queriesUsed,
+  };
 
-    const byId = new Map(uniq.map((cnd) => [cnd.googleVolumeId, cnd] as const));
-    const byTitle = new Map<string, (typeof uniq)[number]>();
-    for (const cnd of uniq) {
-      if (cnd.title) byTitle.set(normalizeKey(cnd.title), cnd);
-    }
+  const stored = await upsertAiOutput({
+    userId,
+    bookId,
+    kind,
+    payload,
+    model: "google_books",
+  });
 
-    const merged = generated.payload.recommendations.map((rec) => {
-      const matchedById = rec.id ? byId.get(rec.id) : undefined;
-      const matchedByTitle = !matchedById && rec.title ? byTitle.get(normalizeKey(rec.title)) : undefined;
-      const matched = matchedById || matchedByTitle;
-
-      return {
-        googleVolumeId: matched?.googleVolumeId ?? rec.id ?? null,
-        title: matched?.title ?? rec.title,
-        author: matched?.author ?? rec.author ?? null,
-        coverImageUrl: matched?.coverImageUrl ?? null,
-        previewLink: matched?.previewLink ?? null,
-        reason: rec.reason,
-        similarityTags: rec.similarityTags ?? [],
-        whatToCompare: rec.whatToCompare ?? [],
-      };
-    });
-
-    const payload = {
-      recommendations: merged,
-      note: generated.payload.note,
-      candidateQuery: q,
-    };
-
-    const stored = await upsertAiOutput({
-      userId,
+  await logAiUsage({
+    userId,
+    feature: "book_recommendations",
+    theme: sanitizeText(book.title),
+    model: "google_books",
+    status: "success",
+    metadata: {
       bookId,
       kind,
-      payload,
-      model: generated.model,
-    });
+      candidateQueries: queriesUsed,
+      recommendationCount: payload.recommendations.length,
+      excludedVolumeId: currentVolumeId || null,
+    },
+  });
 
-    await logAiUsage({
-      userId,
-      feature: "book_recommendations",
-      theme: sanitizeText(book.title),
-      model: generated.model,
-      status: "success",
-      metadata: {
-        bookId,
-        kind,
-        source,
-        hasSourceText: Boolean(sourceText),
-        candidateQuery: q,
-        candidateCount: uniq.length,
-      },
-    });
-
-    return c.json({
-      kind,
-      model: generated.model,
-      payload,
-      stored: stored
-        ? {
-            ...stored,
-            createdAt: stored.createdAt.toISOString(),
-            updatedAt: stored.updatedAt.toISOString(),
-          }
-        : null,
-    });
-  } catch (error) {
-    const attemptedModels =
-      error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    await logAiUsage({
-      userId,
-      feature: "book_recommendations",
-      theme: sanitizeText(book.title),
-      model: attemptedModels[0] || "none",
-      status: "failed",
-      errorMessage,
-      metadata: {
-        bookId,
-        kind,
-        source,
-        hasSourceText: Boolean(sourceText),
-        candidateQuery: q,
-        candidateCount: uniq.length,
-        attemptedModels,
-      },
-    });
-
-    return c.json({ error: "generation_failed", message: errorMessage }, 503);
-  }
+  return c.json({
+    kind,
+    model: "google_books",
+    payload,
+    stored: stored
+      ? {
+          ...stored,
+          createdAt: stored.createdAt.toISOString(),
+          updatedAt: stored.updatedAt.toISOString(),
+        }
+      : null,
+  });
 });
 
 // ─── AI: Author Background (Hybrid: Google Books + LLM summary) ──────────
@@ -1165,28 +1208,33 @@ booksRouter.post("/:id/ai/author-background", async (c) => {
         : null,
     });
   } catch (error) {
-    const attemptedModels =
-      error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const failure = classifyOpenRouterFailure(error);
 
     await logAiUsage({
       userId,
       feature: "book_author_background",
       theme: sanitizeText(book.title),
-      model: attemptedModels[0] || "none",
+      model: failure.attemptedModels[0] || "none",
       status: "failed",
-      errorMessage,
+      errorMessage: failure.message,
       metadata: {
         bookId,
         kind,
         source,
         hasSourceText: Boolean(sourceText),
         authorCandidateCount: uniq.length,
-        attemptedModels,
+        attemptedModels: failure.attemptedModels,
       },
     });
 
-    return c.json({ error: "generation_failed", message: errorMessage }, 503);
+    if (failure.status === 429 && failure.retryAfterSeconds) {
+      c.header("Retry-After", String(failure.retryAfterSeconds));
+    }
+
+    return c.json(
+      { error: "generation_failed", message: failure.message },
+      failure.status
+    );
   }
 });
 
@@ -1294,26 +1342,31 @@ booksRouter.post("/:id/ai/compare", zValidator("json", compareSchema), async (c)
         : null,
     });
   } catch (error) {
-    const attemptedModels =
-      error instanceof OpenRouterGenerationError ? error.attemptedModels : [];
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const failure = classifyOpenRouterFailure(error);
 
     await logAiUsage({
       userId,
       feature: "book_compare",
       theme: sanitizeText(bookA.title),
-      model: attemptedModels[0] || "none",
+      model: failure.attemptedModels[0] || "none",
       status: "failed",
-      errorMessage,
+      errorMessage: failure.message,
       metadata: {
         bookId,
         kind,
         otherBookId: bookB.id,
-        attemptedModels,
+        attemptedModels: failure.attemptedModels,
       },
     });
 
-    return c.json({ error: "generation_failed", message: errorMessage }, 503);
+    if (failure.status === 429 && failure.retryAfterSeconds) {
+      c.header("Retry-After", String(failure.retryAfterSeconds));
+    }
+
+    return c.json(
+      { error: "generation_failed", message: failure.message },
+      failure.status
+    );
   }
 });
 

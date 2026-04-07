@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { filterModelsForCooldown, markModelRateLimited } from "./openrouterModelCooldown";
 
 const OPENROUTER_URL =
   process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1/chat/completions";
@@ -494,8 +495,13 @@ export async function generateUnseenWithOpenRouter(
     );
   }
 
-  const models = parseModelsFromEnv();
-  logDebug(traceId, "config.models", { models, timeoutMs: GENERATION_TIMEOUT_MS });
+  const allModels = parseModelsFromEnv();
+  const models = filterModelsForCooldown(allModels);
+  logDebug(traceId, "config.models", {
+    models,
+    timeoutMs: GENERATION_TIMEOUT_MS,
+    cooldownFiltered: models.length !== allModels.length,
+  });
   const attempted: string[] = [];
   let lastError = "Unknown generation error";
   let lastStatus: number | undefined;
@@ -519,6 +525,10 @@ export async function generateUnseenWithOpenRouter(
       if (error instanceof OpenRouterHttpError) {
         lastStatus = error.status;
         retryAfterSeconds = error.retryAfterSeconds;
+
+        if (error.status === 429) {
+          markModelRateLimited(model, error.retryAfterSeconds);
+        }
       }
 
       logError(traceId, "model.failed", {

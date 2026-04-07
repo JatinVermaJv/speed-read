@@ -33,7 +33,7 @@ See `.env.example` for a starting point.
 - `NODE_ENV` (`development` | `production`)
 - `GOOGLE_CLIENT_ID` (required for `POST /auth/google`)
 
-OpenRouter (used by unseen generation + admin language template generation):
+OpenRouter (used by book AI endpoints, unseen generation, and admin language template generation):
 
 - `OPENROUTER_API_KEY` (required to use OpenRouter-backed endpoints)
 - `OPENROUTER_MODELS` (optional, comma-separated) — explicit ordered list of models to try

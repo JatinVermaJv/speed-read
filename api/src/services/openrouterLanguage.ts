@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { OpenRouterGenerationError, OpenRouterHttpError } from "./openrouter";
 import { callOpenRouterJson, parseModelsFromEnv } from "./openrouterJsonClient";
+import { filterModelsForCooldown, markModelRateLimited } from "./openrouterModelCooldown";
 
 const DEBUG_OPENROUTER = (() => {
   const raw = (
@@ -191,7 +192,11 @@ export async function generateLanguageCoursePlanWithOpenRouter(
   const level = params.level?.trim() || "A1";
   const lessonCount = Math.min(Math.max(3, Math.floor(params.lessonCount)), 30);
 
-  const models = parseModelsFromEnv();
+  const allModels = parseModelsFromEnv();
+  const models = filterModelsForCooldown(allModels);
+  if (models.length !== allModels.length) {
+    logDebug(traceId, "config.models.cooldown_filtered", { allModels, models });
+  }
   const attempted: string[] = [];
   let lastError = "Unknown generation error";
   let lastStatus: number | undefined;
@@ -229,6 +234,10 @@ export async function generateLanguageCoursePlanWithOpenRouter(
       if (error instanceof OpenRouterHttpError) {
         lastStatus = error.status;
         retryAfterSeconds = error.retryAfterSeconds;
+
+        if (error.status === 429) {
+          markModelRateLimited(model, error.retryAfterSeconds);
+        }
       }
       logError(traceId, "model.failed", { model, ...details });
     }
@@ -258,7 +267,11 @@ export async function generateLessonVocabWithOpenRouter(
   const level = params.level?.trim() || "A1";
   const vocabCount = Math.min(Math.max(5, Math.floor(params.vocabCount)), 30);
 
-  const models = parseModelsFromEnv();
+  const allModels = parseModelsFromEnv();
+  const models = filterModelsForCooldown(allModels);
+  if (models.length !== allModels.length) {
+    logDebug(traceId, "config.models.cooldown_filtered", { allModels, models });
+  }
   const attempted: string[] = [];
   let lastError = "Unknown generation error";
   let lastStatus: number | undefined;
@@ -301,6 +314,10 @@ export async function generateLessonVocabWithOpenRouter(
       if (error instanceof OpenRouterHttpError) {
         lastStatus = error.status;
         retryAfterSeconds = error.retryAfterSeconds;
+
+        if (error.status === 429) {
+          markModelRateLimited(model, error.retryAfterSeconds);
+        }
       }
       logError(traceId, "model.failed", { model, ...details });
     }

@@ -69,6 +69,34 @@ function safeJsonParse(text: string): any {
   }
 }
 
+function asNonEmptyText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function listAsParagraphs(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const paragraphs = value
+    .filter((v) => typeof v === "string")
+    .map((v) => (v as string).trim())
+    .filter(Boolean);
+  if (paragraphs.length === 0) return null;
+  return paragraphs.join("\n\n");
+}
+
+function mergeParagraphBlocks(...blocks: Array<string | null | undefined>): string | null {
+  const out = blocks.map((b) => (typeof b === "string" ? b.trim() : "")).filter(Boolean);
+  return out.length > 0 ? out.join("\n\n") : null;
+}
+
+function truncateText(value: unknown, maxChars: number): string | null {
+  const text = asNonEmptyText(value);
+  if (!text) return null;
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}…`;
+}
+
 function BookCover({ src, alt }: { src: string | null; alt: string }) {
   const [failed, setFailed] = useState(false);
 
@@ -318,7 +346,11 @@ export default function BookDetailPage({
   }
 
   const summaryKindKey = `summary_${activeSummary}`;
-  const summary = aiOutputs[summaryKindKey]?.payload;
+  const summaryRaw = aiOutputs[summaryKindKey]?.payload;
+  const summary =
+    summaryRaw && typeof summaryRaw === "object" && !Array.isArray(summaryRaw)
+      ? (summaryRaw as any)
+      : null;
   const compareKindKey = compareWith ? `compare_${compareWith}` : null;
   const comparePayload = compareKindKey ? aiOutputs[compareKindKey]?.payload : null;
 
@@ -528,33 +560,29 @@ export default function BookDetailPage({
                 {activeSummary === "tldr" && (
                   <div className="space-y-3">
                     <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                      {summary.tldr}
+                      {mergeParagraphBlocks(
+                        asNonEmptyText(summary.tldr),
+                        listAsParagraphs((summary as any).bullets)
+                      )}
                     </div>
-                    <ul className="list-disc pl-5 text-sm space-y-1">
-                      {(summary.bullets || []).map((b: string, idx: number) => (
-                        <li key={idx}>{b}</li>
-                      ))}
-                    </ul>
                   </div>
                 )}
 
                 {activeSummary === "concise" && (
                   <div className="space-y-3">
                     <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                      {summary.summary}
+                      {mergeParagraphBlocks(
+                        asNonEmptyText(summary.summary),
+                        listAsParagraphs((summary as any).bullets)
+                      )}
                     </div>
-                    <ul className="list-disc pl-5 text-sm space-y-1">
-                      {(summary.bullets || []).map((b: string, idx: number) => (
-                        <li key={idx}>{b}</li>
-                      ))}
-                    </ul>
                   </div>
                 )}
 
                 {activeSummary === "deep" && (
                   <div className="space-y-4">
                     <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                      {summary.overview}
+                      {asNonEmptyText(summary.overview)}
                     </div>
 
                     <div className="space-y-3">
@@ -562,35 +590,39 @@ export default function BookDetailPage({
                         <div key={idx} className="rounded-xl border border-border/60 bg-card/40 p-4">
                           <div className="font-semibold text-sm">{s.heading}</div>
                           <div className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">
-                            {s.summary}
+                            {mergeParagraphBlocks(
+                              asNonEmptyText(s.summary),
+                              listAsParagraphs(s.bullets)
+                            )}
                           </div>
                         </div>
                       ))}
                     </div>
 
-                    <div>
-                      <div className="text-sm font-semibold">Key insights</div>
-                      <ul className="list-disc pl-5 text-sm space-y-1 mt-2">
-                        {(summary.keyInsights || []).map((b: string, idx: number) => (
-                          <li key={idx}>{b}</li>
-                        ))}
-                      </ul>
-                    </div>
+                    {Array.isArray((summary as any).keyInsights) && (
+                      <div>
+                        <div className="text-sm font-semibold">Key insights</div>
+                        <div className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">
+                          {listAsParagraphs((summary as any).keyInsights)}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {activeSummary === "skimmable" && (
                   <div className="space-y-4">
-                    <div className="text-sm font-semibold">{summary.headline}</div>
+                    <div className="text-sm font-semibold">{asNonEmptyText(summary.headline)}</div>
                     <div className="space-y-3">
                       {(summary.sections || []).map((s: any, idx: number) => (
                         <div key={idx} className="rounded-xl border border-border/60 bg-card/40 p-4">
                           <div className="font-semibold text-sm">{s.heading}</div>
-                          <ul className="list-disc pl-5 text-sm space-y-1 mt-2">
-                            {(s.bullets || []).map((b: string, bIdx: number) => (
-                              <li key={bIdx}>{b}</li>
-                            ))}
-                          </ul>
+                          <div className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">
+                            {mergeParagraphBlocks(
+                              asNonEmptyText(s.summary),
+                              listAsParagraphs(s.bullets)
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -779,67 +811,125 @@ export default function BookDetailPage({
           </div>
 
           <div className="p-6 space-y-4">
-            {aiOutputs.recommendations ? (
+            {aiOutputs.recommendations && aiOutputs.recommendations.payload && typeof aiOutputs.recommendations.payload === "object" ? (
               <>
-                {aiOutputs.recommendations.payload.note && (
+                {(aiOutputs.recommendations.payload as any).note && (
                   <div className="text-sm text-muted-foreground">
-                    {aiOutputs.recommendations.payload.note}
+                    {(aiOutputs.recommendations.payload as any).note}
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {(aiOutputs.recommendations.payload.recommendations || []).map((r: any, idx: number) => (
-                    <div
-                      key={idx}
-                      className="rounded-2xl border border-border/60 bg-card/40 p-4 flex gap-4"
-                    >
-                      <div className="w-20 shrink-0">
-                        <div className="aspect-[3/4]">
-                          <BookCover
-                            src={r.coverImageUrl || null}
-                            alt={`${r.title} cover`}
-                          />
-                        </div>
-                      </div>
+                  {(((aiOutputs.recommendations.payload as any).recommendations || []) as any[]).map((r: any, idx: number) => {
+                    const legacyHasReason = typeof r?.reason === "string";
+                    const legacyHasCompare = Array.isArray(r?.whatToCompare);
+                    const isLegacy = legacyHasReason || legacyHasCompare;
 
-                      <div className="min-w-0 flex-1 space-y-2">
-                        <div>
-                          <div className="font-semibold text-sm leading-snug">{r.title}</div>
-                          {r.author && (
-                            <div className="text-xs text-muted-foreground truncate">{r.author}</div>
+                    if (isLegacy) {
+                      return (
+                        <div
+                          key={idx}
+                          className="rounded-2xl border border-border/60 bg-card/40 p-4 flex gap-4"
+                        >
+                          <div className="w-20 shrink-0">
+                            <div className="aspect-[3/4]">
+                              <BookCover
+                                src={r.coverImageUrl || null}
+                                alt={`${r.title} cover`}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <div>
+                              <div className="font-semibold text-sm leading-snug">{r.title}</div>
+                              {r.author && (
+                                <div className="text-xs text-muted-foreground truncate">{r.author}</div>
+                              )}
+                            </div>
+
+                            <div className="text-sm text-muted-foreground whitespace-pre-wrap">
+                              {r.reason}
+                            </div>
+
+                            {Array.isArray(r.whatToCompare) && r.whatToCompare.length > 0 && (
+                              <div>
+                                <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                                  What to compare
+                                </div>
+                                <ul className="list-disc pl-5 text-sm space-y-1 mt-1">
+                                  {r.whatToCompare.slice(0, 6).map((t: string, tIdx: number) => (
+                                    <li key={tIdx}>{t}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {r.previewLink && (
+                              <a
+                                href={r.previewLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-sm text-primary hover:underline"
+                              >
+                                Preview
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const description = truncateText(r.description, 520);
+                    const categories = asNonEmptyText(r.categories);
+
+                    return (
+                      <div
+                        key={idx}
+                        className="rounded-2xl border border-border/60 bg-card/40 p-4 flex gap-4"
+                      >
+                        <div className="w-20 shrink-0">
+                          <div className="aspect-[3/4]">
+                            <BookCover
+                              src={r.coverImageUrl || null}
+                              alt={`${r.title} cover`}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div>
+                            <div className="font-semibold text-sm leading-snug">{r.title}</div>
+                            {r.author && (
+                              <div className="text-xs text-muted-foreground truncate">{r.author}</div>
+                            )}
+                            {categories && (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                Genres: {categories}
+                              </div>
+                            )}
+                          </div>
+
+                          {description && (
+                            <div className="text-sm text-muted-foreground whitespace-pre-wrap">
+                              {description}
+                            </div>
+                          )}
+
+                          {r.previewLink && (
+                            <a
+                              href={r.previewLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm text-primary hover:underline"
+                            >
+                              Preview
+                            </a>
                           )}
                         </div>
-
-                        <div className="text-sm text-muted-foreground whitespace-pre-wrap">
-                          {r.reason}
-                        </div>
-
-                        {Array.isArray(r.whatToCompare) && r.whatToCompare.length > 0 && (
-                          <div>
-                            <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                              What to compare
-                            </div>
-                            <ul className="list-disc pl-5 text-sm space-y-1 mt-1">
-                              {r.whatToCompare.slice(0, 6).map((t: string, tIdx: number) => (
-                                <li key={tIdx}>{t}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {r.previewLink && (
-                          <a
-                            href={r.previewLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-sm text-primary hover:underline"
-                          >
-                            Preview
-                          </a>
-                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             ) : (
